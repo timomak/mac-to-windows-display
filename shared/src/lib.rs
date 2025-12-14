@@ -32,8 +32,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_version() {
-        assert!(!VERSION.is_empty());
+    fn test_version_format() {
+        // VERSION is set at compile time from Cargo.toml, verify it's semver-like
+        assert!(VERSION.contains('.'), "Version should contain a dot");
     }
 
     #[test]

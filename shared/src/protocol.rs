@@ -46,7 +46,7 @@ impl TryFrom<u8> for FrameType {
     }
 }
 
-/// Frame header (fixed size: 24 bytes)
+/// Frame header (fixed size: 26 bytes)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameHeader {
     /// Protocol version
@@ -73,7 +73,8 @@ pub struct FrameHeader {
 
 impl FrameHeader {
     /// Header size in bytes
-    pub const SIZE: usize = 24;
+    /// version(1) + frame_type(1) + sequence(8) + timestamp_us(8) + width(2) + height(2) + payload_size(4) = 26
+    pub const SIZE: usize = 26;
 
     /// Create a new frame header
     pub fn new(
