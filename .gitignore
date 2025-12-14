@@ -1,0 +1,48 @@
+# Build outputs
+/target/
+/shared/target/
+/win/target/
+/mac/.build/
+/mac/.swiftpm/
+
+# Dependencies
+/Cargo.lock
+*.lock
+
+# IDE
+.idea/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+.vscode/
+
+# Logs (keep directory but ignore log files)
+logs/*.log
+logs/*.txt
+!logs/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# SSH keys (never commit)
+*.pem
+*_ed25519
+*_rsa
+*.pub
+
+# Environment files
+.env
+.env.local
+*.env
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# Crash dumps
+*.dmp
+*.crash

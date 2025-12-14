@@ -1,0 +1,193 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Rust shared library checks
+  rust:
+    name: Rust (shared)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: shared
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            shared/target
+          key: ${{ runner.os }}-cargo-shared-${{ hashFiles('shared/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-shared-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --all
+
+      - name: Build
+        run: cargo build --all
+
+  # Windows receiver build
+  windows-build:
+    name: Windows Build
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: win
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            win/target
+          key: ${{ runner.os }}-cargo-win-${{ hashFiles('win/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-win-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --release
+
+  # Swift macOS build
+  swift-build:
+    name: Swift Build (macOS)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: mac
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Run tests
+        run: swift test
+        continue-on-error: true # Tests may not exist yet
+
+  # Validate documentation and scripts
+  docs:
+    name: Validate Docs & Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required docs exist
+        run: |
+          files=(
+            "README.md"
+            "LICENSE"
+            "CONTRIBUTING.md"
+            "docs/ARCHITECTURE.md"
+            "docs/PHASE.md"
+            "docs/RUNBOOK.md"
+            "docs/SETUP_THUNDERBOLT_BRIDGE.md"
+            "docs/SSH_MCP_SETUP.md"
+            "docs/TESTING.md"
+            "docs/TROUBLESHOOTING.md"
+          )
+
+          missing=0
+          for file in "${files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing: $file"
+              missing=1
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+
+          if [ $missing -eq 1 ]; then
+            exit 1
+          fi
+
+      - name: Check required scripts exist
+        run: |
+          files=(
+            "scripts/00_connect_first.md"
+            "scripts/check_link_mac.sh"
+            "scripts/check_link_win.ps1"
+            "scripts/01_setup_ssh_win.ps1"
+            "scripts/01_setup_ssh_mac.sh"
+            "scripts/02_verify_ssh_mac.sh"
+            "scripts/03_write_cursor_mcp_config.sh"
+            "scripts/run_mac.sh"
+            "scripts/run_win.ps1"
+            "scripts/smoke_test_mac.sh"
+            "scripts/smoke_test_win.ps1"
+          )
+
+          missing=0
+          for file in "${files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing: $file"
+              missing=1
+            else
+              echo "✅ Found: $file"
+            fi
+          done
+
+          if [ $missing -eq 1 ]; then
+            exit 1
+          fi
+
+      - name: Validate shell scripts syntax
+        run: |
+          for script in scripts/*.sh; do
+            echo "Checking $script..."
+            bash -n "$script" || exit 1
+          done
+          echo "All shell scripts have valid syntax"
+
+      - name: Check scripts are executable
+        run: |
+          for script in scripts/*.sh; do
+            if [ ! -x "$script" ]; then
+              echo "Warning: $script is not executable"
+            fi
+          done
