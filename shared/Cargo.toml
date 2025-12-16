@@ -31,9 +31,9 @@ chrono = "0.4"
 # Bytes handling
 bytes = "1"
 
-# Future dependencies (Phase 1+):
-# quinn = "0.10"  # QUIC transport
-# rustls = "0.21" # TLS
+# QUIC transport
+quinn = "0.10"
+rustls = "0.21"  # TLS for quinn
 
 [dev-dependencies]
 tokio-test = "0.4"

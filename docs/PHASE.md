@@ -2,9 +2,9 @@
 
 This document tracks development progress. Each phase builds on the previous one.
 
-**Current Phase:** `PHASE=0`
+**Current Phase:** `PHASE=1`
 
-**Current Focus:** Phase 0 complete - ready for Phase 1
+**Current Focus:** Implement basic QUIC server in shared crate
 
 ---
 
@@ -67,7 +67,7 @@ This document tracks development progress. Each phase builds on the previous one
 
 ### Checklist
 
-- [ ] Add quinn QUIC dependency to shared crate
+- [x] Add quinn QUIC dependency to shared crate
   - *Acceptance:* `cargo build` succeeds with quinn
 
 - [ ] Implement basic QUIC server in shared crate
