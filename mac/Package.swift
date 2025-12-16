@@ -6,6 +6,7 @@ import PackageDescription
 let package = Package(
     name: "ThunderMirror",
     platforms: [
+        // ScreenCaptureKit requires macOS 12.3+
         .macOS(.v13)
     ],
     products: [
@@ -29,7 +30,11 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-            path: "Sources/ThunderMirror"
+            path: "Sources/ThunderMirror",
+            linkerSettings: [
+                // Link ScreenCaptureKit framework
+                .linkedFramework("ScreenCaptureKit"),
+            ]
         ),
         // Tests
         .testTarget(

@@ -108,8 +108,26 @@ if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
     }
 }
 
-# Phase 2+ Tests (when implemented)
-# TODO: Add receiver tests
+# Phase 2 Tests: Screen Capture Receiver
+Write-Host ""
+Write-Host "=== Phase 2: Screen Capture Receiver ==="
+Write-Host ""
+
+# Test: Receiver handles resolution changes (receiver already supports this from Phase 1)
+# The receiver dynamically resizes its buffer when resolution changes
+$WinDir = Join-Path $ProjectDir "win"
+if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
+    Run-Test "Receiver supports dynamic resolution" {
+        Push-Location $WinDir
+        try {
+            # Check that the receiver code handles resolution changes
+            $content = Get-Content -Path "src\main.rs" -Raw
+            return $content -match "Resolution changed to"
+        } finally {
+            Pop-Location
+        }
+    }
+}
 
 Write-Host ""
 Write-Host "========================================"

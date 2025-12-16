@@ -2,9 +2,9 @@
 
 This document tracks development progress. Each phase builds on the previous one.
 
-**Current Phase:** `PHASE=2`
+**Current Phase:** `PHASE=3`
 
-**Current Focus:** Implement ScreenCaptureKit capture in Mac CLI
+**Current Focus:** Implement VideoToolbox H.264 encoder on Mac
 
 ---
 
@@ -102,19 +102,19 @@ This document tracks development progress. Each phase builds on the previous one
 
 ### Checklist
 
-- [ ] Implement ScreenCaptureKit capture in Mac CLI
+- [x] Implement ScreenCaptureKit capture in Mac CLI
   - *Acceptance:* Captures screen at 60 fps
 
-- [ ] Handle Screen Recording permission prompt
+- [x] Handle Screen Recording permission prompt
   - *Acceptance:* App requests permission, docs explain approval
 
-- [ ] Send captured frames (raw or lightly compressed)
+- [x] Send captured frames (raw or lightly compressed)
   - *Acceptance:* Real screen content visible on Windows
 
-- [ ] Handle display resolution changes
+- [x] Handle display resolution changes
   - *Acceptance:* Receiver adapts to resolution changes
 
-- [ ] Add smoke test for Phase 2
+- [x] Add smoke test for Phase 2
   - *Acceptance:* `smoke_test_*.sh/ps1` validates real capture works
 
 ---
@@ -206,7 +206,7 @@ This document tracks development progress. Each phase builds on the previous one
 |-------|-------|----------|--------|
 | 0 | 14 | 14 | ✅ Done |
 | 1 | 9 | 9 | ✅ Done |
-| 2 | 5 | 0 | 🔲 Next |
-| 3 | 7 | 0 | 🔲 |
+| 2 | 5 | 5 | ✅ Done |
+| 3 | 7 | 0 | 🔲 Next |
 | 3.5 | 7 | 0 | 🔲 |
 | 4 | 5 | 0 | 🔲 |

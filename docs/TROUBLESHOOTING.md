@@ -321,16 +321,50 @@ Check `Cargo.toml` has all required dependencies.
 **Symptoms:**
 - Black/empty capture
 - "Screen recording permission required" error
+- Error message: `Screen Recording permission denied. Please grant access in System Preferences > Privacy & Security > Screen Recording`
+
+**Understanding the Permission:**
+macOS requires explicit user consent for screen capture. When ThunderMirror first tries to capture the screen, macOS will display a permission prompt. The app cannot capture anything until you grant access.
 
 **Solution:**
-1. System Settings → Privacy & Security → Screen Recording
-2. Find ThunderMirror and toggle ON
-3. Restart the app
 
-**To reset for testing:**
+1. **If prompted automatically:**
+   - Click "Open System Settings" when the dialog appears
+   - Toggle ThunderMirror ON in the list
+   - If ThunderMirror doesn't appear, make sure the app has attempted capture at least once
+
+2. **To grant permission manually:**
+   - Open **System Settings** (or System Preferences on older macOS)
+   - Navigate to **Privacy & Security → Screen Recording**
+   - Find **ThunderMirror** in the list
+   - Toggle it **ON**
+   - You may need to unlock the padlock (🔒) first
+
+3. **If the app doesn't appear in the list:**
+   - Run ThunderMirror once (it will fail but register itself)
+   - Then check System Settings again
+
+4. **After granting permission:**
+   - Quit ThunderMirror completely
+   - Restart the app
+   - Permission should now work
+
+**To test with the fallback mode:**
 ```bash
-tccutil reset ScreenCapture com.yourcompany.ThunderMirror
+# Use test pattern mode (no permission required)
+cd mac && .build/debug/ThunderMirror --test-pattern -t 192.168.50.2
 ```
+
+**To reset permission for testing:**
+```bash
+# Reset Screen Recording permission for Terminal (if running from terminal)
+tccutil reset ScreenCapture com.apple.Terminal
+
+# Or for the built app specifically
+tccutil reset ScreenCapture com.thundermirror.sender
+```
+
+**Note:** After resetting, you'll need to grant permission again when the app next runs.
 
 ### Receiver shows black screen
 
