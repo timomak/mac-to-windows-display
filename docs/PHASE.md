@@ -2,9 +2,9 @@
 
 This document tracks development progress. Each phase builds on the previous one.
 
-**Current Phase:** `PHASE=3`
+**Current Phase:** `PHASE=3.5`
 
-**Current Focus:** Implement VideoToolbox H.264 encoder on Mac
+**Current Focus:** macOS SwiftUI app shell (Optional UI phase)
 
 ---
 
@@ -125,25 +125,25 @@ This document tracks development progress. Each phase builds on the previous one
 
 ### Checklist
 
-- [ ] Implement VideoToolbox H.264 encoder on Mac
+- [x] Implement VideoToolbox H.264 encoder on Mac
   - *Acceptance:* Encodes at 60 fps with <5ms latency
 
-- [ ] Configure encoder for ultra-low latency
+- [x] Configure encoder for ultra-low latency
   - *Acceptance:* No B-frames, short GOP, baseline profile
 
-- [ ] Implement Media Foundation H.264 decoder on Windows
-  - *Acceptance:* Decodes stream in real-time
+- [x] Implement Media Foundation H.264 decoder on Windows
+  - *Acceptance:* Decodes stream in real-time (using OpenH264)
 
-- [ ] Fullscreen borderless window on Windows
+- [x] Fullscreen borderless window on Windows
   - *Acceptance:* Viewer fills entire screen
 
-- [ ] Add bitrate adaptation
+- [x] Add bitrate adaptation
   - *Acceptance:* Adjusts bitrate based on network conditions
 
-- [ ] Polish error handling and reconnection
+- [x] Polish error handling and reconnection
   - *Acceptance:* Graceful recovery from disconnection
 
-- [ ] Add comprehensive logging and stats
+- [x] Add comprehensive logging and stats
   - *Acceptance:* `logs/` contains detailed session logs
 
 ---
@@ -200,6 +200,41 @@ This document tracks development progress. Each phase builds on the previous one
 
 ---
 
+## Phase 5: Maximum Performance (Stress Test)
+
+**Goal:** Push the Thunderbolt connection to its limits with maximum resolution, refresh rate, and quality.
+
+### Checklist
+
+- [ ] Support 4K @ 60Hz streaming
+  - *Acceptance:* 3840×2160 streams smoothly with <16ms latency
+
+- [ ] Support 4K @ 120Hz streaming
+  - *Acceptance:* 3840×2160 @ 120Hz with Thunderbolt's full bandwidth
+
+- [ ] Implement 10-bit color depth (HDR10)
+  - *Acceptance:* HDR content preserves wide color gamut
+
+- [ ] Add HEVC/H.265 encoding option
+  - *Acceptance:* Better quality at same bitrate vs H.264
+
+- [ ] Benchmark and log bandwidth utilization
+  - *Acceptance:* Stats show Gbps throughput, % of Thunderbolt capacity
+
+- [ ] Support 5K resolution (5120×2880)
+  - *Acceptance:* Native Retina resolution streams to Windows
+
+- [ ] Adaptive quality scaling under load
+  - *Acceptance:* Dynamically adjusts resolution/bitrate to maintain framerate
+
+- [ ] Create performance benchmark suite
+  - *Acceptance:* Automated tests measure latency, throughput, dropped frames
+
+- [ ] Document maximum achievable specs
+  - *Acceptance:* README lists tested max resolution/fps combinations
+
+---
+
 ## Progress Summary
 
 | Phase | Items | Complete | Status |
@@ -207,6 +242,7 @@ This document tracks development progress. Each phase builds on the previous one
 | 0 | 14 | 14 | ✅ Done |
 | 1 | 9 | 9 | ✅ Done |
 | 2 | 5 | 5 | ✅ Done |
-| 3 | 7 | 0 | 🔲 Next |
-| 3.5 | 7 | 0 | 🔲 |
+| 3 | 7 | 7 | ✅ Done |
+| 3.5 | 7 | 0 | 🔲 Next |
 | 4 | 5 | 0 | 🔲 |
+| 5 | 9 | 0 | 🔲 |

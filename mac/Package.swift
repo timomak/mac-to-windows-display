@@ -32,8 +32,11 @@ let package = Package(
             ],
             path: "Sources/ThunderMirror",
             linkerSettings: [
-                // Link ScreenCaptureKit framework
+                // Link required frameworks
                 .linkedFramework("ScreenCaptureKit"),
+                .linkedFramework("VideoToolbox"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("CoreVideo"),
             ]
         ),
         // Tests

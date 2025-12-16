@@ -1,6 +1,6 @@
 [package]
 name = "thunder_receiver"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "ThunderMirror Windows receiver - displays streamed content from Mac"
 license = "MIT"
@@ -38,6 +38,9 @@ rcgen = "0.12"
 
 # Graphics for rendering
 minifb = "0.28"  # Simple cross-platform windowing
+
+# H.264 decoding (Phase 3)
+openh264 = "0.6"
 
 [dev-dependencies]
 tokio-test = "0.4"

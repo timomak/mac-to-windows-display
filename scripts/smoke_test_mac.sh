@@ -143,6 +143,35 @@ if [ -d "$PROJECT_DIR/mac" ]; then
         "cd '$PROJECT_DIR/mac' && .build/debug/ThunderMirror --help | grep -q 'test-pattern'"
 fi
 
+# Phase 3 Tests: H.264 Encoding
+echo ""
+echo "=== Phase 3: H.264 Encoding ==="
+echo ""
+
+# Test: H264Encoder.swift compiles (required)
+if [ -d "$PROJECT_DIR/mac" ] && [ -f "$PROJECT_DIR/mac/Package.swift" ]; then
+    run_test "H264Encoder.swift compiles" \
+        "test -f '$PROJECT_DIR/mac/Sources/ThunderMirror/H264Encoder.swift'"
+fi
+
+# Test: VideoToolbox framework linked (required)
+if [ -d "$PROJECT_DIR/mac" ]; then
+    run_test "VideoToolbox framework linked" \
+        "grep -q 'VideoToolbox' '$PROJECT_DIR/mac/Package.swift'"
+fi
+
+# Test: Raw mode option available (required)
+if [ -d "$PROJECT_DIR/mac" ]; then
+    run_test "--raw option available" \
+        "cd '$PROJECT_DIR/mac' && .build/debug/ThunderMirror --help | grep -q '\-\-raw'"
+fi
+
+# Test: Bitrate option available (required)
+if [ -d "$PROJECT_DIR/mac" ]; then
+    run_test "--bitrate option available" \
+        "cd '$PROJECT_DIR/mac' && .build/debug/ThunderMirror --help | grep -q '\-\-bitrate'"
+fi
+
 echo ""
 echo "========================================"
 

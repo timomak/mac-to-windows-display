@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import Logging
 import ScreenCaptureKit
+import VideoToolbox
 
 /// ThunderMirror Mac Sender CLI
 ///
@@ -11,7 +12,7 @@ struct ThunderMirror: AsyncParsableCommand {
     static var configuration = CommandConfiguration(
         commandName: "ThunderMirror",
         abstract: "Stream Mac display to Windows over Thunderbolt",
-        version: "0.2.0"
+        version: "0.3.0"
     )
 
     @Option(name: .shortAndLong, help: "Windows receiver IP address")
@@ -28,6 +29,12 @@ struct ThunderMirror: AsyncParsableCommand {
 
     @Flag(name: .long, help: "Use test pattern instead of real capture")
     var testPattern = false
+    
+    @Flag(name: .long, help: "Send raw RGBA frames instead of H.264 encoded")
+    var raw = false
+    
+    @Option(name: .long, help: "Target bitrate in Mbps (default: 10)")
+    var bitrate: Int = 10
 
     @Option(name: .long, help: "Duration in seconds (0 = indefinite)")
     var duration: Int = 0
@@ -42,6 +49,8 @@ struct ThunderMirror: AsyncParsableCommand {
         let portValue = port
         let modeValue = mode
         let useTestPattern = testPattern
+        let useRaw = raw
+        let targetBitrate = Int32(bitrate * 1_000_000)
         let runDuration = duration
 
         // Setup logging
@@ -53,10 +62,11 @@ struct ThunderMirror: AsyncParsableCommand {
 
         let logger = Logger(label: "com.thundermirror.sender")
 
-        logger.info("ThunderMirror Mac Sender v0.2.0")
+        logger.info("ThunderMirror Mac Sender v0.3.0")
         logger.info("Target: \(targetIPValue):\(portValue)")
         logger.info("Mode: \(modeValue)")
         logger.info("Source: \(useTestPattern ? "test pattern" : "screen capture")")
+        logger.info("Encoding: \(useRaw ? "raw RGBA" : "H.264 @ \(bitrate) Mbps")")
 
         // Connect to receiver
         let client = QuicClient()
@@ -70,13 +80,19 @@ struct ThunderMirror: AsyncParsableCommand {
                     logger.info("Connected!")
                     
                     if useTestPattern {
-                        // Phase 1: Test pattern streaming
+                        // Phase 1: Test pattern streaming (always raw)
                         streamTestPatternAsync(client: client, logger: logger, duration: runDuration, continuation: continuation)
                     } else {
-                        // Phase 2: Real screen capture
+                        // Phase 2/3: Real screen capture
                         Task {
                             do {
-                                try await streamScreenCaptureAsync(client: client, logger: logger, duration: runDuration)
+                                try await streamScreenCaptureAsync(
+                                    client: client,
+                                    logger: logger,
+                                    duration: runDuration,
+                                    useH264: !useRaw,
+                                    bitrate: targetBitrate
+                                )
                                 continuation.resume()
                             } catch {
                                 logger.error("Screen capture failed: \(error.localizedDescription)")
@@ -177,16 +193,19 @@ func streamTestPatternAsync(
     }
 }
 
-/// Stream real screen capture (Phase 2) - free function to avoid self capture
+/// Stream real screen capture (Phase 2/3) - free function to avoid self capture
 @available(macOS 12.3, *)
 func streamScreenCaptureAsync(
     client: QuicClient,
     logger: Logger,
-    duration: Int
+    duration: Int,
+    useH264: Bool = true,
+    bitrate: Int32 = 10_000_000
 ) async throws {
-    logger.info("Starting screen capture...")
+    logger.info("Starting screen capture (H.264: \(useH264))...")
     
     let capture = ScreenCapture()
+    let encoder: H264Encoder? = useH264 ? H264Encoder() : nil
     
     var sequence: UInt64 = 0
     let startTime = Date()
@@ -194,9 +213,12 @@ func streamScreenCaptureAsync(
     var framesSinceStats: UInt64 = 0
     var bytesSinceStats: UInt64 = 0
     var shouldStop = false
+    var encoderInitialized = false
+    var currentWidth: UInt16 = 0
+    var currentHeight: UInt16 = 0
     
-    // Handle frames from capture
-    capture.onFrame = { rgbaData, width, height in
+    // Handle encoded frames from H.264 encoder
+    encoder?.onEncodedFrame = { nalData, isKeyframe in
         guard !shouldStop else { return }
         
         let timestampUs = UInt64(Date().timeIntervalSince(startTime) * 1_000_000)
@@ -204,9 +226,10 @@ func streamScreenCaptureAsync(
         let frameData = createFrameData(
             sequence: sequence,
             timestampUs: timestampUs,
-            width: width,
-            height: height,
-            payload: rgbaData
+            width: currentWidth,
+            height: currentHeight,
+            payload: nalData,
+            frameType: 1  // H264Frame
         )
         
         client.send(frameData) { sendResult in
@@ -220,7 +243,8 @@ func streamScreenCaptureAsync(
                 if now.timeIntervalSince(lastStatsTime) >= 1.0 {
                     let fps = Double(framesSinceStats) / now.timeIntervalSince(lastStatsTime)
                     let mbps = Double(bytesSinceStats * 8) / (now.timeIntervalSince(lastStatsTime) * 1_000_000)
-                    logger.info("Stats: \(String(format: "%.1f", fps)) fps, \(String(format: "%.1f", mbps)) Mbps, \(width)x\(height), frame \(sequence)")
+                    let keyframeMarker = isKeyframe ? " [K]" : ""
+                    logger.info("Stats: \(String(format: "%.1f", fps)) fps, \(String(format: "%.1f", mbps)) Mbps, \(currentWidth)x\(currentHeight), H.264, frame \(sequence)\(keyframeMarker)")
                     framesSinceStats = 0
                     bytesSinceStats = 0
                     lastStatsTime = now
@@ -234,9 +258,122 @@ func streamScreenCaptureAsync(
         sequence += 1
     }
     
+    // Handle frames from capture
+    capture.onFrame = { rgbaData, width, height in
+        guard !shouldStop else { return }
+        
+        currentWidth = width
+        currentHeight = height
+        
+        if useH264, let encoder = encoder {
+            // Initialize encoder on first frame or resolution change
+            if !encoderInitialized || width != UInt16(encoder.width) || height != UInt16(encoder.height) {
+                do {
+                    try encoder.initialize(width: Int32(width), height: Int32(height), bitrate: bitrate, fps: 60)
+                    encoderInitialized = true
+                } catch {
+                    logger.error("Failed to initialize encoder: \(error.localizedDescription)")
+                    shouldStop = true
+                    return
+                }
+            }
+            
+            // Create pixel buffer from RGBA data
+            var pixelBuffer: CVPixelBuffer?
+            let attrs: [String: Any] = [
+                kCVPixelBufferCGImageCompatibilityKey as String: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+            ]
+            
+            let status = CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                Int(width),
+                Int(height),
+                kCVPixelFormatType_32BGRA,
+                attrs as CFDictionary,
+                &pixelBuffer
+            )
+            
+            guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+                logger.error("Failed to create pixel buffer")
+                return
+            }
+            
+            CVPixelBufferLockBaseAddress(buffer, [])
+            defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+            
+            if let baseAddress = CVPixelBufferGetBaseAddress(buffer) {
+                let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+                let dest = baseAddress.assumingMemoryBound(to: UInt8.self)
+                
+                // Convert RGBA to BGRA
+                rgbaData.withUnsafeBytes { srcPtr in
+                    guard let src = srcPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                    
+                    for y in 0..<Int(height) {
+                        for x in 0..<Int(width) {
+                            let srcOffset = (y * Int(width) + x) * 4
+                            let dstOffset = y * bytesPerRow + x * 4
+                            
+                            // RGBA -> BGRA
+                            dest[dstOffset + 0] = src[srcOffset + 2]  // B
+                            dest[dstOffset + 1] = src[srcOffset + 1]  // G
+                            dest[dstOffset + 2] = src[srcOffset + 0]  // R
+                            dest[dstOffset + 3] = src[srcOffset + 3]  // A
+                        }
+                    }
+                }
+            }
+            
+            // Encode frame
+            do {
+                try encoder.encode(pixelBuffer: buffer)
+            } catch {
+                logger.error("Encoding failed: \(error.localizedDescription)")
+            }
+        } else {
+            // Raw RGBA streaming (Phase 2 mode)
+            let timestampUs = UInt64(Date().timeIntervalSince(startTime) * 1_000_000)
+            
+            let frameData = createFrameData(
+                sequence: sequence,
+                timestampUs: timestampUs,
+                width: width,
+                height: height,
+                payload: rgbaData,
+                frameType: 0  // RawFrame
+            )
+            
+            client.send(frameData) { sendResult in
+                switch sendResult {
+                case .success:
+                    framesSinceStats += 1
+                    bytesSinceStats += UInt64(frameData.count)
+                    
+                    // Log stats every second
+                    let now = Date()
+                    if now.timeIntervalSince(lastStatsTime) >= 1.0 {
+                        let fps = Double(framesSinceStats) / now.timeIntervalSince(lastStatsTime)
+                        let mbps = Double(bytesSinceStats * 8) / (now.timeIntervalSince(lastStatsTime) * 1_000_000)
+                        logger.info("Stats: \(String(format: "%.1f", fps)) fps, \(String(format: "%.1f", mbps)) Mbps, \(width)x\(height), raw, frame \(sequence)")
+                        framesSinceStats = 0
+                        bytesSinceStats = 0
+                        lastStatsTime = now
+                    }
+                case .failure(let error):
+                    logger.error("Failed to send frame: \(error.localizedDescription)")
+                    shouldStop = true
+                }
+            }
+            
+            sequence += 1
+        }
+    }
+    
     // Handle resolution changes
     capture.onResolutionChange = { width, height in
         logger.info("Resolution changed to \(width)x\(height)")
+        // Encoder will be re-initialized on next frame
     }
     
     // Start capture
@@ -265,17 +402,26 @@ func streamScreenCaptureAsync(
     
     // Cleanup
     shouldStop = true
+    encoder?.shutdown()
     await capture.stopCapture()
     client.close()
     logger.info("Streaming complete. Sent \(sequence) frames.")
 }
 
+/// Frame types matching the protocol
+enum FrameType: UInt8 {
+    case raw = 0      // Raw RGBA pixel data
+    case h264 = 1     // H.264 encoded frame
+    case control = 2  // Control message
+    case stats = 3    // Statistics/heartbeat
+}
+
 /// Create frame data with header
 /// Protocol: version(1) + frame_type(1) + sequence(8) + timestamp_us(8) + width(2) + height(2) + payload_size(4) = 26 bytes header
-func createFrameData(sequence: UInt64, timestampUs: UInt64, width: UInt16, height: UInt16, payload: Data) -> Data {
+func createFrameData(sequence: UInt64, timestampUs: UInt64, width: UInt16, height: UInt16, payload: Data, frameType: UInt8 = 0) -> Data {
     var frameData = Data(capacity: 26 + payload.count)
     frameData.append(1) // version
-    frameData.append(0) // frame_type: RawFrame
+    frameData.append(frameType) // frame_type
     frameData.append(contentsOf: withUnsafeBytes(of: sequence.bigEndian) { Data($0) })
     frameData.append(contentsOf: withUnsafeBytes(of: timestampUs.bigEndian) { Data($0) })
     frameData.append(contentsOf: withUnsafeBytes(of: width.bigEndian) { Data($0) })

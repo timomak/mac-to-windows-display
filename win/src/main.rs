@@ -9,14 +9,40 @@ use std::time::{Duration, Instant};
 use bytes::{Buf, Bytes};
 use clap::Parser;
 use minifb::{Key, Window, WindowOptions};
+use openh264::decoder::Decoder;
+use openh264::formats::YUVSource;
 use quinn::{Endpoint, ServerConfig};
 use rustls::{Certificate, PrivateKey};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn, Level};
+use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 /// Frame header size in bytes
 const FRAME_HEADER_SIZE: usize = 26;
+
+/// Frame types from protocol
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum FrameType {
+    Raw = 0,
+    H264 = 1,
+    Control = 2,
+    Stats = 3,
+}
+
+impl TryFrom<u8> for FrameType {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(FrameType::Raw),
+            1 => Ok(FrameType::H264),
+            2 => Ok(FrameType::Control),
+            3 => Ok(FrameType::Stats),
+            _ => Err(anyhow::anyhow!("Unknown frame type: {}", value)),
+        }
+    }
+}
 
 /// ThunderMirror Windows Receiver
 ///
@@ -49,6 +75,7 @@ struct FrameData {
     rgba_data: Vec<u8>,
     #[allow(dead_code)]
     sequence: u64,
+    frame_type: FrameType,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -68,7 +95,7 @@ fn main() -> anyhow::Result<()> {
 
     tracing::subscriber::set_global_default(subscriber)?;
 
-    info!("ThunderMirror Windows Receiver v0.1.0");
+    info!("ThunderMirror Windows Receiver v0.2.0");
     info!("Listening on port: {}", args.port);
     info!("Fullscreen: {}", args.fullscreen);
 
@@ -85,14 +112,26 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Initialize H.264 decoder
+    let mut h264_decoder = Decoder::new().expect("Failed to create H.264 decoder");
+    info!("H.264 decoder initialized (OpenH264)");
+
     // Initialize window with default size (will resize when we receive frames)
     let mut width: usize = 1920;
     let mut height: usize = 1080;
     let mut buffer: Vec<u32> = vec![0; width * height];
 
-    let window_opts = WindowOptions {
-        resize: true,
-        ..Default::default()
+    let window_opts = if args.fullscreen {
+        WindowOptions {
+            resize: true,
+            borderless: true,
+            ..Default::default()
+        }
+    } else {
+        WindowOptions {
+            resize: true,
+            ..Default::default()
+        }
     };
 
     let mut window = Window::new(
@@ -108,6 +147,8 @@ fn main() -> anyhow::Result<()> {
     let mut last_stats = Instant::now();
     let mut frame_count = 0u64;
     let mut total_bytes = 0u64;
+    let mut h264_frames = 0u64;
+    let mut raw_frames = 0u64;
 
     info!("Window created, waiting for frames...");
 
@@ -125,13 +166,53 @@ fn main() -> anyhow::Result<()> {
                 info!("Resolution changed to {}x{}", width, height);
             }
 
-            // Convert RGBA to u32 (0xRRGGBB format for minifb)
-            for (i, pixel) in frame.rgba_data.chunks(4).enumerate() {
-                if i < buffer.len() && pixel.len() >= 3 {
-                    let r = pixel[0] as u32;
-                    let g = pixel[1] as u32;
-                    let b = pixel[2] as u32;
-                    buffer[i] = (r << 16) | (g << 8) | b;
+            match frame.frame_type {
+                FrameType::H264 => {
+                    // Decode H.264 frame
+                    match h264_decoder.decode(&frame.rgba_data) {
+                        Ok(Some(decoded)) => {
+                            // Get dimensions from decoded frame
+                            let (dec_width, dec_height) = decoded.dimensions();
+                            
+                            // Convert YUV to RGB and store in buffer
+                            // First, create an RGB buffer
+                            let mut rgb_buffer = vec![0u8; dec_width * dec_height * 3];
+                            decoded.write_rgb8(&mut rgb_buffer);
+                            
+                            // Convert RGB to u32 buffer (0xRRGGBB format for minifb)
+                            for (i, pixel) in rgb_buffer.chunks(3).enumerate() {
+                                if i < buffer.len() && pixel.len() >= 3 {
+                                    let r = pixel[0] as u32;
+                                    let g = pixel[1] as u32;
+                                    let b = pixel[2] as u32;
+                                    buffer[i] = (r << 16) | (g << 8) | b;
+                                }
+                            }
+                            h264_frames += 1;
+                        }
+                        Ok(None) => {
+                            // Decoder needs more data (buffering)
+                            debug!("H.264 decoder buffering...");
+                        }
+                        Err(e) => {
+                            warn!("H.264 decode error: {:?}", e);
+                        }
+                    }
+                }
+                FrameType::Raw => {
+                    // Raw RGBA data - convert directly
+                    for (i, pixel) in frame.rgba_data.chunks(4).enumerate() {
+                        if i < buffer.len() && pixel.len() >= 3 {
+                            let r = pixel[0] as u32;
+                            let g = pixel[1] as u32;
+                            let b = pixel[2] as u32;
+                            buffer[i] = (r << 16) | (g << 8) | b;
+                        }
+                    }
+                    raw_frames += 1;
+                }
+                _ => {
+                    debug!("Ignoring frame type: {:?}", frame.frame_type);
                 }
             }
 
@@ -147,15 +228,21 @@ fn main() -> anyhow::Result<()> {
             let fps = frame_count as f64 / last_stats.elapsed().as_secs_f64();
             let mbps =
                 (total_bytes as f64 * 8.0) / (last_stats.elapsed().as_secs_f64() * 1_000_000.0);
-            info!("Stats: {:.1} FPS, {:.1} Mbps", fps, mbps);
+            let codec = if h264_frames > raw_frames { "H.264" } else { "raw" };
+            info!(
+                "Stats: {:.1} FPS, {:.1} Mbps, {} (h264:{}, raw:{})",
+                fps, mbps, codec, h264_frames, raw_frames
+            );
 
             window.set_title(&format!(
-                "ThunderMirror - {}x{} @ {:.0} FPS, {:.0} Mbps",
-                width, height, fps, mbps
+                "ThunderMirror - {}x{} @ {:.0} FPS, {:.0} Mbps [{}]",
+                width, height, fps, mbps, codec
             ));
 
             frame_count = 0;
             total_bytes = 0;
+            h264_frames = 0;
+            raw_frames = 0;
             last_stats = Instant::now();
         }
     }
@@ -163,6 +250,7 @@ fn main() -> anyhow::Result<()> {
     info!("Window closed, shutting down...");
     Ok(())
 }
+
 
 async fn run_quic_server(port: u16, tx: mpsc::Sender<FrameData>) -> anyhow::Result<()> {
     let addr: SocketAddr = format!("0.0.0.0:{}", port).parse()?;
@@ -211,12 +299,21 @@ async fn handle_connection(
                 // Parse frame header (big-endian)
                 let mut bytes = Bytes::from(data);
                 let _version = bytes.get_u8();
-                let _frame_type = bytes.get_u8();
+                let frame_type_raw = bytes.get_u8();
                 let sequence = bytes.get_u64();
                 let _timestamp_us = bytes.get_u64();
                 let width = bytes.get_u16();
                 let height = bytes.get_u16();
                 let payload_size = bytes.get_u32() as usize;
+
+                // Parse frame type
+                let frame_type = match FrameType::try_from(frame_type_raw) {
+                    Ok(ft) => ft,
+                    Err(e) => {
+                        warn!("Invalid frame type: {}", e);
+                        continue;
+                    }
+                };
 
                 if bytes.remaining() < payload_size {
                     warn!(
@@ -229,6 +326,15 @@ async fn handle_connection(
 
                 let rgba_data = bytes.slice(..payload_size).to_vec();
 
+                debug!(
+                    "Received frame: seq={}, type={:?}, {}x{}, {} bytes",
+                    sequence,
+                    frame_type,
+                    width,
+                    height,
+                    payload_size
+                );
+
                 // Send to renderer
                 if tx
                     .send(FrameData {
@@ -236,6 +342,7 @@ async fn handle_connection(
                         height,
                         rgba_data,
                         sequence,
+                        frame_type,
                     })
                     .await
                     .is_err()

@@ -129,6 +129,46 @@ if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
     }
 }
 
+# Phase 3 Tests: H.264 Decoding
+Write-Host ""
+Write-Host "=== Phase 3: H.264 Decoding ==="
+Write-Host ""
+
+# Test: OpenH264 dependency in Cargo.toml
+$WinDir = Join-Path $ProjectDir "win"
+if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
+    Run-Test "OpenH264 dependency added" {
+        $content = Get-Content -Path (Join-Path $WinDir "Cargo.toml") -Raw
+        return $content -match "openh264"
+    }
+}
+
+# Test: H.264 decoder in receiver code
+if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
+    Run-Test "H.264 decoder implemented" {
+        Push-Location $WinDir
+        try {
+            $content = Get-Content -Path "src\main.rs" -Raw
+            return $content -match "h264_decoder" -and $content -match "FrameType::H264"
+        } finally {
+            Pop-Location
+        }
+    }
+}
+
+# Test: Fullscreen option available
+if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
+    Run-Test "Fullscreen option available" {
+        Push-Location $WinDir
+        try {
+            $content = Get-Content -Path "src\main.rs" -Raw
+            return $content -match "fullscreen" -and $content -match "borderless"
+        } finally {
+            Pop-Location
+        }
+    }
+}
+
 Write-Host ""
 Write-Host "========================================"
 
