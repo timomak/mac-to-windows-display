@@ -134,3 +134,24 @@ Done! Phase 1 item completed.
 - If unsure about an implementation detail, ask the user
 - Use SSH MCP if available, fall back to plain ssh blade18-tb commands
 - Collect logs from both sides when debugging
+
+## SSH Between Machines
+
+Bidirectional SSH is configured:
+
+| From | To | SSH Command | MCP Server |
+|------|----|-------------|------------|
+| Mac | Windows | `ssh blade18-tb` | `blade18-tb` |
+| Windows | Mac | `ssh mac-tb` | `mac-tb` |
+
+**Mac agent can run Windows commands:**
+```bash
+ssh blade18-tb "powershell.exe -Command Get-Date"
+```
+
+**Windows agent can run Mac commands:**
+```bash
+ssh mac-tb "uname -a"
+```
+
+Both MCP servers are configured in `.cursor/mcp.json` - after fetching latest code, restart Cursor to pick up the config.

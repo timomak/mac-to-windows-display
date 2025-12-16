@@ -77,6 +77,7 @@ Run these commands to identify issues:
 **Symptoms:**
 - Link scripts show interfaces but ping times out
 - `Request timed out` or `Destination host unreachable`
+- Mac → Windows fails, but Windows → Mac works
 
 **Solutions:**
 
@@ -85,17 +86,33 @@ Run these commands to identify issues:
    - Windows: 192.168.50.2/24
    - Both masks: 255.255.255.0
 
-2. **Check Windows Firewall:**
+2. **⚠️ IMPORTANT: Thunderbolt adapters often get "Public" network profile!**
+   
+   Windows assigns new adapters to "Public" by default, which has stricter firewall rules:
+   
    ```powershell
-   # Allow ICMP (ping)
+   # Check the network profile
+   Get-NetConnectionProfile | Where-Object InterfaceAlias -match "Ethernet|Thunderbolt"
+   
+   # If NetworkCategory shows "Public", add ICMP rule for all profiles:
+   New-NetFirewallRule -Name "ThunderMirror-ICMP" `
+       -DisplayName "ThunderMirror ICMP Allow" `
+       -Enabled True -Direction Inbound -Protocol ICMPv4 `
+       -IcmpType 8 -RemoteAddress 192.168.50.0/24 `
+       -Action Allow -Profile Any
+   ```
+
+3. **Standard ICMP rule (may not work for Public profile):**
+   ```powershell
+   # Allow ICMP (ping) - works for Private/Domain profiles
    New-NetFirewallRule -DisplayName "Allow ICMPv4" -Protocol ICMPv4 -IcmpType 8 -Action Allow
    ```
 
-3. **Check macOS Firewall:**
+4. **Check macOS Firewall:**
    - System Settings → Network → Firewall
    - Ensure ICMP isn't blocked
 
-4. **Verify correct interface:**
+5. **Verify correct interface:**
    - Make sure you're not pinging via WiFi/Ethernet accidentally
 
 ---
@@ -127,11 +144,23 @@ ssh: connect to host 192.168.50.2 port 22: Connection refused
 
 3. **Check firewall allows SSH:**
    ```powershell
-   Get-NetFirewallRule -DisplayName "*SSH*" | Format-Table DisplayName, Enabled
+   Get-NetFirewallRule -DisplayName "*SSH*" | Format-Table DisplayName, Enabled, Profile
    ```
    If not present, add:
    ```powershell
    New-NetFirewallRule -Name "OpenSSH-Server" -DisplayName "OpenSSH SSH Server" -Protocol TCP -LocalPort 22 -Action Allow
+   ```
+
+4. **⚠️ IMPORTANT: Default SSH rule only covers "Private" profile!**
+   
+   Since Thunderbolt adapters often get assigned "Public" profile, you may need an additional rule:
+   
+   ```powershell
+   # Add SSH rule specifically for Public profile
+   New-NetFirewallRule -Name "OpenSSH-Server-Public" `
+       -DisplayName "OpenSSH SSH Server (Public)" `
+       -Enabled True -Direction Inbound -Protocol TCP `
+       -Action Allow -LocalPort 22 -Profile Public
    ```
 
 ### "Permission denied (publickey)"
@@ -148,13 +177,34 @@ Permission denied (publickey,keyboard-interactive).
    ls -la ~/.ssh/blade18_tb_ed25519*
    ```
 
-2. **Verify key is in Windows authorized_keys:**
+2. **⚠️ IMPORTANT: Admin users need different authorized_keys file!**
+   
+   If your Windows user is a member of the Administrators group, OpenSSH ignores `%USERPROFILE%\.ssh\authorized_keys` and uses a system-wide file instead:
+   
+   ```powershell
+   # Check if you're an admin
+   net localgroup Administrators | findstr /i "$env:USERNAME"
+   
+   # If yes, add key to the admin file instead:
+   $key = "ssh-ed25519 AAAA... your-key-here"
+   Add-Content -Path "C:\ProgramData\ssh\administrators_authorized_keys" -Value $key
+   
+   # Fix permissions on admin file
+   icacls "C:\ProgramData\ssh\administrators_authorized_keys" /inheritance:r
+   icacls "C:\ProgramData\ssh\administrators_authorized_keys" /grant "SYSTEM:(R)"
+   icacls "C:\ProgramData\ssh\administrators_authorized_keys" /grant "Administrators:(R)"
+   
+   # Restart SSH
+   Restart-Service sshd
+   ```
+
+3. **For non-admin users, verify key is in Windows authorized_keys:**
    ```powershell
    type $env:USERPROFILE\.ssh\authorized_keys
    ```
    Should contain a line starting with `ssh-ed25519 AAAA...`
 
-3. **Re-copy the key:**
+4. **Re-copy the key:**
    ```bash
    ssh-copy-id -i ~/.ssh/blade18_tb_ed25519.pub blade18-tb
    ```
@@ -163,7 +213,7 @@ Permission denied (publickey,keyboard-interactive).
    cat ~/.ssh/blade18_tb_ed25519.pub | ssh user@192.168.50.2 "mkdir -p .ssh && cat >> .ssh/authorized_keys"
    ```
 
-4. **Check Windows permissions:**
+5. **Check Windows permissions (for non-admin users):**
    For OpenSSH on Windows, `authorized_keys` must have correct permissions:
    ```powershell
    icacls $env:USERPROFILE\.ssh\authorized_keys /inheritance:r
@@ -190,6 +240,32 @@ Permission denied (publickey,keyboard-interactive).
 
 2. **Wrong interface being used:**
    Verify you're connecting via Thunderbolt IP, not WiFi
+
+### "'export' is not recognized" error on connect
+
+**Symptoms:**
+```
+'export' is not recognized as an internal or external command,
+operable program or batch file.
+Connection to 192.168.50.2 closed.
+```
+
+**Explanation:**
+This is harmless. Windows OpenSSH defaults to `cmd.exe` as the shell, and your Mac terminal is sending bash initialization commands that cmd.exe doesn't understand.
+
+**Solutions:**
+
+1. **Run commands explicitly with powershell.exe:**
+   ```bash
+   ssh blade18-tb "powershell.exe -Command Get-Date"
+   ```
+
+2. **Or change Windows default shell to PowerShell:**
+   ```powershell
+   # Run as Admin on Windows
+   New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
+   Restart-Service sshd
+   ```
 
 ---
 

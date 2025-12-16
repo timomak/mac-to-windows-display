@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "blade18-tb": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic/mcp-ssh@latest",
+        "--host",
+        "blade18-tb"
+      ],
+      "env": {}
+    },
+    "mac-tb": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic/mcp-ssh@latest",
+        "--host",
+        "mac-tb"
+      ],
+      "env": {}
+    }
+  }
+}

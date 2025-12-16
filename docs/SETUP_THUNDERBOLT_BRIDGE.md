@@ -6,7 +6,7 @@ This guide explains how to establish a network connection between your Mac and W
 
 When you connect two computers with a Thunderbolt cable, they can communicate over IP networking. This creates a dedicated, high-speed network link between the machines without needing a router or switch.
 
-- **Bandwidth:** Up to 40 Gbps (Thunderbolt 3/4)
+- **Bandwidth:** Up to 40 Gbps (Thunderbolt 3/4) or 80 Gbps (Thunderbolt 5)
 - **Latency:** Sub-millisecond (direct connection)
 - **Use case:** Perfect for high-bandwidth streaming like screen mirroring
 
@@ -14,15 +14,17 @@ When you connect two computers with a Thunderbolt cable, they can communicate ov
 
 ### Cable
 
-You need a **Thunderbolt 3 or Thunderbolt 4** cable:
+You need a **Thunderbolt 3, Thunderbolt 4, or Thunderbolt 5** cable:
 - USB-C connectors on both ends
 - Must be Thunderbolt-certified (not just a USB-C cable)
 - Length: 0.5m - 2m recommended (longer cables may reduce performance)
 
 **How to identify a Thunderbolt cable:**
 - Look for the ⚡ (lightning bolt) symbol
-- Check packaging for "Thunderbolt 3" or "Thunderbolt 4"
+- Check packaging for "Thunderbolt 3", "Thunderbolt 4", or "Thunderbolt 5"
 - USB-only cables won't work for Thunderbolt Bridge
+
+> **Note:** Thunderbolt 5 cables are backward compatible with Thunderbolt 3/4 ports and work correctly for networking.
 
 ### Ports
 
