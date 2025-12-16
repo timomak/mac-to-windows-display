@@ -15,6 +15,11 @@ let package = Package(
             name: "ThunderMirror",
             targets: ["ThunderMirror"]
         ),
+        // SwiftUI App executable
+        .executable(
+            name: "ThunderMirrorApp",
+            targets: ["ThunderMirrorApp"]
+        ),
     ],
     dependencies: [
         // Argument parsing
@@ -31,6 +36,21 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/ThunderMirror",
+            linkerSettings: [
+                // Link required frameworks
+                .linkedFramework("ScreenCaptureKit"),
+                .linkedFramework("VideoToolbox"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("CoreVideo"),
+            ]
+        ),
+        // SwiftUI App target
+        .executableTarget(
+            name: "ThunderMirrorApp",
+            dependencies: [
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Sources/ThunderMirrorApp",
             linkerSettings: [
                 // Link required frameworks
                 .linkedFramework("ScreenCaptureKit"),

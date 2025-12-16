@@ -154,16 +154,16 @@ This document tracks development progress. Each phase builds on the previous one
 
 ### Checklist
 
-- [ ] macOS SwiftUI app shell
+- [x] macOS SwiftUI app shell
   - *Acceptance:* App builds and shows Start/Stop buttons
 
-- [ ] macOS: IP input field
+- [x] macOS: IP input field
   - *Acceptance:* User can enter Windows IP
 
-- [ ] macOS: Mode dropdown (Mirror/Extend)
+- [x] macOS: Mode dropdown (Mirror/Extend)
   - *Acceptance:* Dropdown exists (Extend disabled until Phase 4)
 
-- [ ] macOS: Status and stats display
+- [x] macOS: Status and stats display
   - *Acceptance:* Shows FPS, bitrate, latency
 
 - [ ] Windows viewer UI shell
@@ -243,6 +243,6 @@ This document tracks development progress. Each phase builds on the previous one
 | 1 | 9 | 9 | ✅ Done |
 | 2 | 5 | 5 | ✅ Done |
 | 3 | 7 | 7 | ✅ Done |
-| 3.5 | 7 | 0 | 🔲 Next |
+| 3.5 | 7 | 4 | 🔲 Next |
 | 4 | 5 | 0 | 🔲 |
 | 5 | 9 | 0 | 🔲 |

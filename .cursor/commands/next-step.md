@@ -9,9 +9,12 @@ When this command is invoked:
 ### 1. Read Current Phase Status
 
 Read `docs/PHASE.md` and determine:
-- Current `PHASE` number (0-4)
+- Current `PHASE` number (0-5)
 - All unchecked `[ ]` items in that phase
 - If all items in current phase are complete, move to next phase
+
+**Note:** For Phase 3.5 (UI), use `ui-step.md` command instead.
+**Note:** For Phase 5 (Performance), use `perf-step.md` command instead.
 
 ### 2. Print Plan
 
