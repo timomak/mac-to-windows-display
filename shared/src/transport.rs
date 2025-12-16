@@ -88,6 +88,88 @@ impl QuicServer {
     }
 }
 
+/// QUIC client for connecting to servers
+pub struct QuicClient {
+    endpoint: Endpoint,
+}
+
+impl QuicClient {
+    /// Create a new QUIC client
+    ///
+    /// # Arguments
+    /// * `bind_addr` - Local address to bind to (e.g., "0.0.0.0:0" for any available port)
+    ///
+    /// # Returns
+    /// A `QuicClient` instance ready to connect
+    pub fn new(bind_addr: SocketAddr) -> Result<Self> {
+        let client_config = Self::create_client_config();
+        let mut endpoint = Endpoint::client(bind_addr)?;
+        endpoint.set_default_client_config(client_config);
+
+        Ok(Self { endpoint })
+    }
+
+    /// Connect to a QUIC server
+    ///
+    /// # Arguments
+    /// * `server_addr` - Server address to connect to
+    /// * `server_name` - Server name for TLS verification (e.g., "localhost")
+    ///
+    /// # Returns
+    /// A `quinn::Connection` when connected
+    pub async fn connect(
+        &self,
+        server_addr: SocketAddr,
+        server_name: &str,
+    ) -> Result<quinn::Connection> {
+        let conn = self
+            .endpoint
+            .connect(server_addr, server_name)
+            .map_err(|e| Error::transport(format!("connect error: {}", e)))?
+            .await
+            .map_err(|e| Error::transport(format!("connection failed: {}", e)))?;
+
+        Ok(conn)
+    }
+
+    /// Create a client configuration with certificate verification disabled for testing
+    ///
+    /// For development/testing purposes, accepts any certificate.
+    /// In production, this should use proper certificate verification.
+    fn create_client_config() -> quinn::ClientConfig {
+        let roots = rustls::RootCertStore::empty();
+        let mut client_config = rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+
+        // Disable certificate verification for testing
+        client_config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(NoVerifier));
+
+        client_config.alpn_protocols = vec![b"thunder-mirror".to_vec()];
+
+        quinn::ClientConfig::new(Arc::new(client_config))
+    }
+}
+
+struct NoVerifier;
+
+impl rustls::client::ServerCertVerifier for NoVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: std::time::SystemTime,
+    ) -> std::result::Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,13 +192,8 @@ mod tests {
         });
 
         // Create a client and connect to the server
-        let client_config = create_client_config();
-        let client_endpoint = Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
-        let client_conn = client_endpoint
-            .connect_with(client_config, server_addr, "localhost")
-            .unwrap()
-            .await
-            .unwrap();
+        let client = QuicClient::new("127.0.0.1:0".parse().unwrap()).unwrap();
+        let client_conn = client.connect(server_addr, "localhost").await.unwrap();
 
         // Wait for server to accept the connection (with timeout)
         timeout(Duration::from_secs(5), server_handle)
@@ -126,40 +203,35 @@ mod tests {
 
         // Verify client connection is established
         assert_eq!(client_conn.remote_address(), server_addr);
-        drop(client_endpoint);
     }
 
-    fn create_client_config() -> quinn::ClientConfig {
-        let roots = rustls::RootCertStore::empty();
-        // For testing, we'll use a custom verifier that accepts any cert
-        let mut client_config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
+    #[tokio::test]
+    async fn test_quic_client_connects_to_server() {
+        // Bind to a random available port
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let server = QuicServer::new(addr).await.unwrap();
+        let server_addr = server.local_addr();
 
-        // Disable certificate verification for testing
-        client_config
-            .dangerous()
-            .set_certificate_verifier(Arc::new(NoVerifier));
+        // Spawn a task to accept a connection
+        let server_handle = tokio::spawn(async move {
+            let conn = server.accept().await.unwrap();
+            // Connection accepted successfully
+            let remote_addr = conn.remote_address();
+            assert_eq!(remote_addr.ip().to_string(), "127.0.0.1");
+            conn
+        });
 
-        client_config.alpn_protocols = vec![b"thunder-mirror".to_vec()];
+        // Create a client and connect to the server
+        let client = QuicClient::new("127.0.0.1:0".parse().unwrap()).unwrap();
+        let client_conn = client.connect(server_addr, "localhost").await.unwrap();
 
-        quinn::ClientConfig::new(Arc::new(client_config))
-    }
+        // Wait for server to accept the connection (with timeout)
+        let _server_conn = timeout(Duration::from_secs(5), server_handle)
+            .await
+            .expect("connection should be accepted within 5 seconds")
+            .expect("server task should complete successfully");
 
-    struct NoVerifier;
-
-    impl rustls::client::ServerCertVerifier for NoVerifier {
-        fn verify_server_cert(
-            &self,
-            _end_entity: &rustls::Certificate,
-            _intermediates: &[rustls::Certificate],
-            _server_name: &rustls::ServerName,
-            _scts: &mut dyn Iterator<Item = &[u8]>,
-            _ocsp_response: &[u8],
-            _now: std::time::SystemTime,
-        ) -> std::result::Result<rustls::client::ServerCertVerified, rustls::Error> {
-            Ok(rustls::client::ServerCertVerified::assertion())
-        }
+        // Verify client connection is established
+        assert_eq!(client_conn.remote_address(), server_addr);
     }
 }

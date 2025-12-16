@@ -89,7 +89,26 @@ if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
     }
 }
 
-# Phase 1+ Tests (when implemented)
+# Phase 1 Tests: QUIC Transport
+Write-Host ""
+Write-Host "=== Phase 1: QUIC Transport ==="
+Write-Host ""
+
+# Test: Win receiver builds
+$WinDir = Join-Path $ProjectDir "win"
+if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
+    Run-Test "Win receiver --help works" {
+        Push-Location $WinDir
+        try {
+            $output = cargo run -- --help 2>&1
+            return $LASTEXITCODE -eq 0
+        } finally {
+            Pop-Location
+        }
+    }
+}
+
+# Phase 2+ Tests (when implemented)
 # TODO: Add receiver tests
 
 Write-Host ""

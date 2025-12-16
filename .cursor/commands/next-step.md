@@ -1,6 +1,6 @@
 # Next Step - Phase Driver Command
 
-This command implements the next unchecked item in the development phase.
+This command implements all unchecked items in the current development phase.
 
 ## Instructions for Cursor Agent
 
@@ -10,24 +10,24 @@ When this command is invoked:
 
 Read `docs/PHASE.md` and determine:
 - Current `PHASE` number (0-4)
-- The next unchecked `[ ]` item in that phase
+- All unchecked `[ ]` items in that phase
 - If all items in current phase are complete, move to next phase
 
 ### 2. Print Plan
 
 Before making any changes, print:
 ```
-## Next Step Plan
+## Phase Completion Plan
 
 Phase: <N>
-Item: <item description>
-Files to modify: <list of files>
-Acceptance check: <how we'll verify success>
+Items to complete: <list of all unchecked items>
+Files to modify: <list of all files that will be changed>
+Acceptance checks: <how we'll verify success for each item>
 ```
 
-### 3. Implement ONE Item
+### 3. Implement ALL Items in Phase
 
-Implement only the single next item. Keep changes small and reviewable.
+Implement all unchecked items in the current phase. Work through them systematically, but complete the entire phase before committing.
 
 ### 4. Run Local Checks
 
@@ -70,11 +70,11 @@ Run any phase-relevant Windows smoke tests.
 
 If all tests pass:
 
-1. Update `docs/PHASE.md` - check off the completed item `[x]`
-2. Update "Current focus" section to next item
+1. Update `docs/PHASE.md` - check off all completed items `[x]` in the phase
+2. Update "Current focus" section to next phase (if phase is complete) or next item
 3. Commit with message format:
    ```
-   phase <N>: <brief item summary>
+   phase <N>: complete phase <N>
    ```
 4. Push to origin:
    ```bash
@@ -97,18 +97,25 @@ If any test fails:
 ## Example Run
 
 ```
-## Next Step Plan
+## Phase Completion Plan
 
 Phase: 1
-Item: Add quinn QUIC dependency to shared crate
-Files to modify: shared/Cargo.toml
-Acceptance check: cargo build succeeds with quinn
+Items to complete:
+  - Add quinn QUIC dependency to shared crate
+  - Add tokio async runtime dependency
+  - Create basic QUIC client structure
+Files to modify: shared/Cargo.toml, shared/src/transport.rs
+Acceptance checks:
+  - cargo build succeeds with quinn and tokio
+  - QUIC client structure compiles
 
 ---
 
 [Implementing...]
 
-Adding quinn = "0.10" to shared/Cargo.toml...
+[Item 1/3] Adding quinn = "0.10" to shared/Cargo.toml...
+[Item 2/3] Adding tokio = { version = "1", features = ["full"] }...
+[Item 3/3] Creating QUIC client structure in transport.rs...
 
 [Running checks...]
 $ cargo fmt --check
@@ -120,20 +127,21 @@ All checks passed!
 [Updating docs/PHASE.md...]
 [Committing...]
 
-$ git add shared/Cargo.toml docs/PHASE.md
-$ git commit -m "phase 1: add quinn QUIC dependency"
+$ git add shared/Cargo.toml shared/src/transport.rs docs/PHASE.md
+$ git commit -m "phase 1: complete phase 1"
 $ git push origin main
 
-Done! Phase 1 item completed.
+Done! Phase 1 completed.
 ```
 
 ## Notes
 
 - Always validate SSH connectivity before remote operations
-- Keep each step atomic and reversible
+- Complete all items in a phase before committing
 - If unsure about an implementation detail, ask the user
 - Use SSH MCP if available, fall back to plain ssh blade18-tb commands
 - Collect logs from both sides when debugging
+- If a phase has many items, you may want to run checks after each major item, but only commit once at the end
 
 ## SSH Between Machines
 

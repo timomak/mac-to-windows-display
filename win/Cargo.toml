@@ -31,9 +31,13 @@ serde_json = "1.0"
 # Bytes handling
 bytes = "1"
 
-# Future dependencies (Phase 1+):
-# quinn = "0.10"  # QUIC transport
-# windows = { version = "0.52", features = [...] }  # Windows APIs
+# QUIC transport
+quinn = "0.10"
+rustls = { version = "0.21", features = ["dangerous_configuration"] }
+rcgen = "0.12"
+
+# Graphics for rendering
+minifb = "0.28"  # Simple cross-platform windowing
 
 [dev-dependencies]
 tokio-test = "0.4"

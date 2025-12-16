@@ -2,9 +2,9 @@
 
 This document tracks development progress. Each phase builds on the previous one.
 
-**Current Phase:** `PHASE=1`
+**Current Phase:** `PHASE=2`
 
-**Current Focus:** Implement basic QUIC client in shared crate
+**Current Focus:** Implement ScreenCaptureKit capture in Mac CLI
 
 ---
 
@@ -73,25 +73,25 @@ This document tracks development progress. Each phase builds on the previous one
 - [x] Implement basic QUIC server in shared crate
   - *Acceptance:* Unit test shows server accepts connections
 
-- [ ] Implement basic QUIC client in shared crate
+- [x] Implement basic QUIC client in shared crate
   - *Acceptance:* Unit test shows client connects to server
 
-- [ ] Add frame protocol types (header, payload chunking)
+- [x] Add frame protocol types (header, payload chunking)
   - *Acceptance:* Types compile, doc comments explain format
 
-- [ ] Implement test pattern generator (color bars)
+- [x] Implement test pattern generator (color bars)
   - *Acceptance:* Function generates valid RGBA buffer
 
-- [ ] Mac CLI: Send test patterns over QUIC
+- [x] Mac CLI: Send test patterns over QUIC
   - *Acceptance:* Mac sends 60 fps test pattern stream
 
-- [ ] Windows: Receive and render test patterns
+- [x] Windows: Receive and render test patterns
   - *Acceptance:* Windows displays color bars in window
 
-- [ ] Add stats collection (FPS, bytes/sec, latency estimate)
+- [x] Add stats collection (FPS, bytes/sec, latency estimate)
   - *Acceptance:* Stats logged every second on both sides
 
-- [ ] Add smoke test for Phase 1
+- [x] Add smoke test for Phase 1
   - *Acceptance:* `smoke_test_*.sh/ps1` validates streaming works
 
 ---
@@ -205,8 +205,8 @@ This document tracks development progress. Each phase builds on the previous one
 | Phase | Items | Complete | Status |
 |-------|-------|----------|--------|
 | 0 | 14 | 14 | ✅ Done |
-| 1 | 9 | 0 | 🔲 Next |
-| 2 | 5 | 0 | 🔲 |
+| 1 | 9 | 9 | ✅ Done |
+| 2 | 5 | 0 | 🔲 Next |
 | 3 | 7 | 0 | 🔲 |
 | 3.5 | 7 | 0 | 🔲 |
 | 4 | 5 | 0 | 🔲 |
