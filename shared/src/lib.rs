@@ -11,6 +11,7 @@ pub mod error;
 pub mod logging;
 pub mod protocol;
 pub mod stats;
+pub mod transport;
 
 pub use config::Config;
 pub use error::{Error, Result};

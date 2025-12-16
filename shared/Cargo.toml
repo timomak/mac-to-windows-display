@@ -33,7 +33,8 @@ bytes = "1"
 
 # QUIC transport
 quinn = "0.10"
-rustls = "0.21"  # TLS for quinn
+rustls = { version = "0.21", features = ["dangerous_configuration"] }  # TLS for quinn
+rcgen = "0.12"  # Certificate generation for testing
 
 [dev-dependencies]
 tokio-test = "0.4"
