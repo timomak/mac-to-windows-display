@@ -6,22 +6,21 @@ use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use windows::core::{w, PCWSTR};
+use windows::core::w;
 use windows::Win32::Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM, COLORREF};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, EndPaint, FillRect,
     GetStockObject, InvalidateRect, LineTo, MoveToEx, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, TextOutW, HBRUSH, HGDIOBJ, HPEN, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
-    WHITE_BRUSH, DrawTextW, DT_CENTER, DT_VCENTER, DT_SINGLELINE,
+    SetTextColor, TextOutW, HBRUSH, HGDIOBJ, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
+    DrawTextW, DT_CENTER, DT_VCENTER, DT_SINGLELINE,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW,
-    LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW, SetWindowTextW, ShowWindow,
-    TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, IDC_ARROW,
-    MSG, SW_SHOW, WM_APP, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_PAINT,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WNDCLASSW, WS_POPUP, WS_VISIBLE, WINDOW_EX_STYLE,
-    WS_EX_LAYERED, WS_MINIMIZEBOX, WS_CAPTION, WS_SYSMENU, WS_OVERLAPPEDWINDOW,
+    LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW, ShowWindow,
+    TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, IDC_ARROW,
+    MSG, SW_SHOW, WM_APP, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_PAINT,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WNDCLASSW, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
 };
 
 const ID_BTN_START: usize = 1001;
@@ -124,9 +123,9 @@ impl AppState {
                         pressed: false,
                     },
                 ],
-                font_title: HGDIOBJ(font_title.0 as *mut _),
-                font_normal: HGDIOBJ(font_normal.0 as *mut _),
-                font_mono: HGDIOBJ(font_mono.0 as *mut _),
+                font_title: HGDIOBJ(font_title.0),
+                font_normal: HGDIOBJ(font_normal.0),
+                font_mono: HGDIOBJ(font_mono.0),
             }
         }
     }
@@ -171,7 +170,7 @@ pub fn run() -> anyhow::Result<()> {
             None,
         );
 
-        if hwnd.0.is_null() {
+        if hwnd.0 == 0 {
             return Err(anyhow::anyhow!(
                 "CreateWindowExW failed: {:?}",
                 GetLastError()
