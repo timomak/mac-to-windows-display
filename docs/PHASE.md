@@ -206,7 +206,7 @@ This document tracks development progress. Each phase builds on the previous one
 
 ### Checklist
 
-- [ ] Create macOS app bundle (.app)
+- [x] Create macOS app bundle (.app)
   - *Acceptance:* `ThunderMirror.app` in `mac/build/` can be double-clicked to launch
 
 - [ ] Design and add macOS app icon
@@ -280,5 +280,5 @@ This document tracks development progress. Each phase builds on the previous one
 | 3 | 7 | 7 | ✅ Done |
 | 3.5 | 7 | 7 | ✅ Done |
 | 4 | 5 | 5 | ✅ Done |
-| 5 | 9 | 0 | 🔲 |
+| 5 | 9 | 1 | 🔄 |
 | 6 | 9 | 0 | 🔲 |

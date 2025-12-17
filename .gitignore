@@ -4,6 +4,7 @@
 /win/target/
 /mac/.build/
 /mac/.swiftpm/
+/mac/build/
 
 # Dependencies
 /Cargo.lock

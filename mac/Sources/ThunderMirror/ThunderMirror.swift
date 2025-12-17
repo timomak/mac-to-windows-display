@@ -43,6 +43,12 @@ struct ThunderMirror: AsyncParsableCommand {
     @Flag(name: .long, inversion: .prefixedNo, help: "Capture at native (physical pixel) resolution. Default: true (Retina quality). Use --no-native-resolution for lower-res capture.")
     var nativeResolution: Bool = true
 
+    @Option(name: .long, help: "Scale factor for resolution (e.g., 0.5 for half, 0.75 for 75%). Applies after native/logical selection.")
+    var scale: Double?
+
+    @Option(name: .long, help: "Maximum width in pixels. Scales down if source is wider, maintaining aspect ratio.")
+    var maxWidth: Int?
+
     @Option(name: .long, help: "Log level (debug, info, warn, error)")
     var logLevel: String = "info"
 
@@ -52,8 +58,8 @@ struct ThunderMirror: AsyncParsableCommand {
     @Flag(name: .long, help: "Send raw RGBA frames instead of H.264 encoded")
     var raw = false
     
-    @Option(name: .long, help: "Target bitrate in Mbps (default: 25)")
-    var bitrate: Int = 25
+    @Option(name: .long, help: "Target bitrate in Mbps (default: auto based on resolution, or 50 Mbps)")
+    var bitrate: Int?
 
     @Option(name: .long, help: "Duration in seconds (0 = indefinite)")
     var duration: Int = 0
@@ -72,9 +78,12 @@ struct ThunderMirror: AsyncParsableCommand {
         let captureDisplayIDValue = captureDisplayID
         let extendFallbackValue = extendFallback
         let nativeResolutionValue = nativeResolution
+        let scaleValue = scale
+        let maxWidthValue = maxWidth
         let useTestPattern = testPattern
         let useRaw = raw
-        let targetBitrate = Int32(bitrate * 1_000_000)
+        // Bitrate: if not specified, will be auto-calculated based on resolution
+        let targetBitrateOverride: Int32? = bitrate.map { Int32($0 * 1_000_000) }
         let runDuration = duration
 
         // Setup logging
@@ -90,7 +99,17 @@ struct ThunderMirror: AsyncParsableCommand {
         logger.info("Target: \(targetIPValue):\(portValue)")
         logger.info("Mode: \(modeValue)")
         logger.info("Source: \(useTestPattern ? "test pattern" : "screen capture")")
-        logger.info("Encoding: \(useRaw ? "raw RGBA" : "H.264 @ \(bitrate) Mbps")")
+        if let br = bitrate {
+            logger.info("Encoding: \(useRaw ? "raw RGBA" : "H.264 @ \(br) Mbps")")
+        } else {
+            logger.info("Encoding: \(useRaw ? "raw RGBA" : "H.264 (auto bitrate)")")
+        }
+        if let s = scaleValue {
+            logger.info("Scale: \(String(format: "%.0f%%", s * 100))")
+        }
+        if let mw = maxWidthValue {
+            logger.info("Max width: \(mw)px")
+        }
 
         // Extend mode is usable without virtual display creation:
         // by default it will capture a secondary display if present, otherwise fall back per --extend-fallback.
@@ -133,8 +152,10 @@ struct ThunderMirror: AsyncParsableCommand {
                                     captureDisplayID: captureDisplayIDValue,
                                     extendFallback: extendFallbackValue,
                                     nativeResolution: nativeResolutionValue,
+                                    scale: scaleValue,
+                                    maxWidth: maxWidthValue,
                                     useH264: !useRaw,
-                                    bitrate: targetBitrate
+                                    bitrateOverride: targetBitrateOverride
                                 )
                                 continuation.resume()
                             } catch {
@@ -263,15 +284,25 @@ func streamScreenCaptureAsync(
     captureDisplayID: UInt32? = nil,
     extendFallback: ExtendFallback = .secondary,
     nativeResolution: Bool = true,
+    scale: Double? = nil,
+    maxWidth: Int? = nil,
     useH264: Bool = true,
-    bitrate: Int32 = 10_000_000
+    bitrateOverride: Int32? = nil
 ) async throws {
     logger.info("Starting screen capture (mode: \(mode), H.264: \(useH264), native: \(nativeResolution))...")
     
     let capture = ScreenCapture()
     capture.captureAtNativeResolution = nativeResolution
+    capture.scaleFactor = scale
+    capture.maxWidth = maxWidth
     let encoder: H264Encoder? = useH264 ? H264Encoder() : nil
     var virtualDisplayHandle: VirtualDisplayHandle?
+    
+    // Auto bitrate calculation: target ~0.15 bits per pixel per frame at 60fps for good quality
+    // This works out to roughly: width * height * 60 * 0.15 / 1_000_000 Mbps
+    // Examples: 1920x1080 -> ~18 Mbps, 3024x1964 -> ~53 Mbps
+    // We'll calculate this after we know the actual capture resolution
+    var autoBitrate: Int32 = 50_000_000  // Default 50 Mbps if we can't calculate
     
     var sequence: UInt64 = 0
     let startTime = Date()
@@ -338,8 +369,18 @@ func streamScreenCaptureAsync(
             // Initialize encoder on first frame or resolution change
             if !encoderInitialized || width != UInt16(encoder.width) || height != UInt16(encoder.height) {
                 do {
-                    try encoder.initialize(width: Int32(width), height: Int32(height), bitrate: bitrate, fps: 60)
+                    // Calculate auto bitrate based on resolution
+                    // Target: 0.2 bits per pixel per frame for high quality H.264
+                    let pixelCount = Double(width) * Double(height)
+                    let calculatedBitrate = Int32(pixelCount * 60.0 * 0.2)
+                    autoBitrate = max(calculatedBitrate, 10_000_000)  // Minimum 10 Mbps
+                    
+                    let effectiveBitrate = bitrateOverride ?? autoBitrate
+                    try encoder.initialize(width: Int32(width), height: Int32(height), bitrate: effectiveBitrate, fps: 60)
                     encoderInitialized = true
+                    
+                    let bitrateSource = bitrateOverride != nil ? "manual" : "auto"
+                    logger.info("Encoder: \(width)x\(height), \(effectiveBitrate / 1_000_000) Mbps (\(bitrateSource))")
                 } catch {
                     logger.error("Failed to initialize encoder: \(error.localizedDescription)")
                     shouldStop = true

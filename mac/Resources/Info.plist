@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Bundle Identification -->
+    <key>CFBundleIdentifier</key>
+    <string>com.thundermirror.app</string>
+    
+    <key>CFBundleName</key>
+    <string>ThunderMirror</string>
+    
+    <key>CFBundleDisplayName</key>
+    <string>ThunderMirror</string>
+    
+    <key>CFBundleExecutable</key>
+    <string>ThunderMirrorApp</string>
+    
+    <!-- Version Information -->
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    
+    <!-- Bundle Type -->
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    
+    <!-- macOS Requirements -->
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    
+    <!-- App Icon -->
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
+    
+    <!-- UI Configuration -->
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    
+    <!-- Privacy Permissions -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>ThunderMirror needs screen recording permission to capture and stream your display to the connected Windows machine.</string>
+    
+    <!-- App Behavior -->
+    <key>LSUIElement</key>
+    <false/>
+    
+    <key>NSAppleEventsUsageDescription</key>
+    <string>ThunderMirror uses AppleEvents for system integration.</string>
+    
+    <!-- Copyright -->
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2024 ThunderMirror. MIT License.</string>
+</dict>
+</plist>
+

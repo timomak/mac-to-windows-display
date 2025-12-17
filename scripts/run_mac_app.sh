@@ -1,20 +1,29 @@
 #!/bin/bash
 #
-# run_mac_app.sh - Build and run the Mac SwiftUI app (Phase 3.5+)
+# run_mac_app.sh - Build and run the ThunderMirror macOS app
 #
-# This is a scaffold for the future UI implementation.
+# This script builds the .app bundle and launches it.
 #
 
 set -e
 
-echo "========================================"
-echo "ThunderMirror - Mac App (UI)"
-echo "========================================"
-echo ""
-echo "This feature is planned for Phase 3.5+"
-echo ""
-echo "For now, use the CLI:"
-echo "  ./scripts/run_mac.sh"
-echo ""
-echo "See docs/PHASE.md for development roadmap."
-exit 0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+MAC_DIR="$PROJECT_ROOT/mac"
+BUILD_DIR="$MAC_DIR/build"
+APP_BUNDLE="$BUILD_DIR/ThunderMirror.app"
+
+# Build the app if needed or if --rebuild flag is passed
+if [[ "$1" == "--rebuild" ]] || [[ ! -d "$APP_BUNDLE" ]]; then
+    "$SCRIPT_DIR/build_mac_app.sh"
+    echo ""
+fi
+
+# Check if app exists
+if [[ ! -d "$APP_BUNDLE" ]]; then
+    echo "❌ Error: App bundle not found. Run with --rebuild flag."
+    exit 1
+fi
+
+echo "🚀 Launching ThunderMirror..."
+open "$APP_BUNDLE"

@@ -34,6 +34,12 @@ class ScreenCapture: NSObject {
     
     /// Whether to capture at native (physical pixel) resolution. Default true for Retina quality.
     var captureAtNativeResolution: Bool = true
+    
+    /// Scale factor for resolution (e.g., 0.5 for half resolution). Applied after native/logical selection.
+    var scaleFactor: Double?
+    
+    /// Maximum width in pixels. If source is wider, scales down maintaining aspect ratio.
+    var maxWidth: Int?
 
     /// Start capturing the screen
     /// - Throws: Error if capture cannot be started
@@ -85,16 +91,37 @@ class ScreenCapture: NSObject {
         let logicalWidth = display.width
         let logicalHeight = display.height
 
-        let captureWidth: Int
-        let captureHeight: Int
+        var captureWidth: Int
+        var captureHeight: Int
         if captureAtNativeResolution && nativeWidth > 0 && nativeHeight > 0 {
             captureWidth = nativeWidth
             captureHeight = nativeHeight
-            logger.info("Using displayID \(display.displayID): \(captureWidth)x\(captureHeight) (native pixels, Retina)")
+            logger.info("Source displayID \(display.displayID): \(captureWidth)x\(captureHeight) (native pixels, Retina)")
         } else {
             captureWidth = logicalWidth
             captureHeight = logicalHeight
-            logger.info("Using displayID \(display.displayID): \(captureWidth)x\(captureHeight) (logical points)")
+            logger.info("Source displayID \(display.displayID): \(captureWidth)x\(captureHeight) (logical points)")
+        }
+        
+        // Apply scale factor if specified
+        if let scale = scaleFactor, scale > 0, scale < 1.0 {
+            captureWidth = Int(Double(captureWidth) * scale)
+            captureHeight = Int(Double(captureHeight) * scale)
+            // Ensure dimensions are even (required for H.264)
+            captureWidth = (captureWidth / 2) * 2
+            captureHeight = (captureHeight / 2) * 2
+            logger.info("Scaled to \(captureWidth)x\(captureHeight) (scale: \(String(format: "%.0f%%", scale * 100)))")
+        }
+        
+        // Apply maxWidth if specified and source is wider
+        if let maxW = maxWidth, captureWidth > maxW {
+            let aspectRatio = Double(captureHeight) / Double(captureWidth)
+            captureWidth = maxW
+            captureHeight = Int(Double(maxW) * aspectRatio)
+            // Ensure dimensions are even (required for H.264)
+            captureWidth = (captureWidth / 2) * 2
+            captureHeight = (captureHeight / 2) * 2
+            logger.info("Capped to \(captureWidth)x\(captureHeight) (maxWidth: \(maxW))")
         }
         
         // Store initial resolution
