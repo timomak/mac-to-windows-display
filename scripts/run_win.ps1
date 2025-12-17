@@ -39,8 +39,17 @@ Write-Host "[1/2] Building..."
 
 Push-Location $WinDir
 try {
+    # Temporarily allow stderr output without treating it as an error
+    # (cargo outputs warnings to stderr, which PowerShell treats as errors)
+    $prevErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    
     $buildOutput = cargo build --release 2>&1
-    if ($LASTEXITCODE -eq 0) {
+    $buildExitCode = $LASTEXITCODE
+    
+    $ErrorActionPreference = $prevErrorActionPreference
+    
+    if ($buildExitCode -eq 0) {
         Write-Host "      Build successful"
     } else {
         Write-Host "      Build failed:"

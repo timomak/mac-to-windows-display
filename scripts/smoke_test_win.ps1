@@ -81,8 +81,13 @@ if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
     Run-Test "Rust win crate builds" {
         Push-Location $WinDir
         try {
+            # Temporarily allow stderr (cargo outputs warnings to stderr)
+            $prevPref = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
             cargo check 2>&1 | Out-Null
-            return $LASTEXITCODE -eq 0
+            $exitCode = $LASTEXITCODE
+            $ErrorActionPreference = $prevPref
+            return $exitCode -eq 0
         } finally {
             Pop-Location
         }
@@ -100,8 +105,13 @@ if (Test-Path (Join-Path $WinDir "Cargo.toml")) {
     Run-Test "Win receiver --help works" {
         Push-Location $WinDir
         try {
+            # Temporarily allow stderr (cargo outputs warnings to stderr)
+            $prevPref = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
             $output = cargo run -- --help 2>&1
-            return $LASTEXITCODE -eq 0
+            $exitCode = $LASTEXITCODE
+            $ErrorActionPreference = $prevPref
+            return $exitCode -eq 0
         } finally {
             Pop-Location
         }
