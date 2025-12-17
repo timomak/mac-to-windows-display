@@ -81,7 +81,7 @@ struct FrameData {
 }
 
 fn resize_window_and_buffers(
-    window: &mut Window,
+    _window: &mut Window,
     width: &mut usize,
     height: &mut usize,
     buffer: &mut Vec<u32>,
@@ -97,13 +97,9 @@ fn resize_window_and_buffers(
         *height = new_height;
         buffer.resize(*width * *height, 0);
 
-        // Minifb does not automatically resize the OS window when buffer dims change.
-        // If we don't do this, the image often appears cropped to the top-left.
-        if let Err(e) = window.set_size(*width, *height) {
-            warn!("Failed to resize window to {}x{}: {:?}", *width, *height, e);
-        } else {
-            info!("Resolution changed to {}x{}", *width, *height);
-        }
+        // Note: minifb 0.28 doesn't support programmatic window resizing after creation.
+        // The buffer will be scaled to fit the current window size.
+        info!("Resolution changed to {}x{}", *width, *height);
     }
 }
 

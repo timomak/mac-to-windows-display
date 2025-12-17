@@ -37,7 +37,7 @@ struct UiModel {
 }
 
 struct AppState {
-    hwnd: HWND,
+    _hwnd: HWND,
     status_hwnd: HWND,
     stats_hwnd: HWND,
     fullscreen_btn_hwnd: HWND,
@@ -92,11 +92,11 @@ pub fn run() -> anyhow::Result<()> {
             ));
         }
 
-        ShowWindow(hwnd, SW_SHOW);
+        let _ = ShowWindow(hwnd, SW_SHOW);
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
-            TranslateMessage(&msg);
+            let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     }
@@ -194,7 +194,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }));
 
                 let state = Box::new(AppState {
-                    hwnd,
+                    _hwnd: hwnd,
                     status_hwnd,
                     stats_hwnd,
                     fullscreen_btn_hwnd,
@@ -299,7 +299,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             LRESULT(0)
         }
         WM_CLOSE => {
-            DestroyWindow(hwnd);
+            let _ = DestroyWindow(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -352,7 +352,7 @@ fn stop_child(state: &mut AppState) {
 fn set_status(hwnd: HWND, text: &str) {
     unsafe {
         let wide = to_wide_null(text);
-        SetWindowTextW(hwnd, PCWSTR(wide.as_ptr()));
+        let _ = SetWindowTextW(hwnd, PCWSTR(wide.as_ptr()));
     }
 }
 

@@ -99,8 +99,9 @@ class H264Encoder {
             throw H264EncoderError.configurationFailed("RealTime", status)
         }
         
-        // Baseline profile for maximum compatibility and lowest latency
-        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Baseline_AutoLevel)
+        // Main profile for better compression efficiency while maintaining low latency
+        // (Main profile supports CABAC and 8x8 transform for ~15-20% better compression)
+        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Main_AutoLevel)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("ProfileLevel", status)
         }
@@ -146,7 +147,7 @@ class H264Encoder {
             // Not critical if this fails
         }
         
-        logger.debug("Encoder configured for low latency: baseline profile, no B-frames, GOP=60")
+        logger.debug("Encoder configured for low latency: main profile, no B-frames, GOP=60")
     }
     
     /// Encode a pixel buffer
