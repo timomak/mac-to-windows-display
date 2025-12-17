@@ -9,6 +9,12 @@ import Logging
 /// It captures the main display at 60 fps and delivers RGBA frames.
 @available(macOS 12.3, *)
 class ScreenCapture: NSObject {
+    enum CaptureDisplaySelection {
+        case main
+        case secondary
+        case displayID(CGDirectDisplayID)
+    }
+
     private var stream: SCStream?
     private var streamOutput: StreamOutput?
     private let logger = Logger(label: "com.thundermirror.capture")
@@ -25,7 +31,7 @@ class ScreenCapture: NSObject {
     
     /// Start capturing the screen
     /// - Throws: Error if capture cannot be started
-    func startCapture(preferredDisplayID: CGDirectDisplayID? = nil) async throws {
+    func startCapture(selection: CaptureDisplaySelection = .main) async throws {
         // Check for Screen Recording permission
         let hasPermission = try await checkPermission()
         guard hasPermission else {
@@ -43,11 +49,25 @@ class ScreenCapture: NSObject {
             throw ScreenCaptureError.noDisplayFound
         }
 
-        // Choose display: preferred → main → first available.
-        let desiredID = preferredDisplayID ?? CGMainDisplayID()
-        let display = displays.first(where: { $0.displayID == desiredID }) ?? displays.first!
-        if display.displayID != desiredID {
-            logger.warning("Preferred displayID \(desiredID) not found; using displayID \(display.displayID) instead.")
+        // Choose display.
+        let mainID = CGMainDisplayID()
+        let display: SCDisplay
+        switch selection {
+        case .main:
+            display = displays.first(where: { $0.displayID == mainID }) ?? displays.first!
+        case .displayID(let desiredID):
+            display = displays.first(where: { $0.displayID == desiredID }) ?? displays.first!
+            if display.displayID != desiredID {
+                logger.warning("Requested displayID \(desiredID) not found; using displayID \(display.displayID) instead.")
+            }
+        case .secondary:
+            let secondaryDisplays = displays.filter { $0.displayID != mainID }
+            if let best = secondaryDisplays.max(by: { ($0.width * $0.height) < ($1.width * $1.height) }) {
+                display = best
+            } else {
+                logger.warning("No secondary display found; falling back to main displayID \(mainID).")
+                display = displays.first(where: { $0.displayID == mainID }) ?? displays.first!
+            }
         }
         
         logger.info("Using displayID \(display.displayID): \(display.width)x\(display.height)")

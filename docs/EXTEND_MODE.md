@@ -44,9 +44,27 @@ True “extend mode” on macOS requires a real display device (physical or virt
 ## Current Implementation (Phase 4 deliverable)
 
 - `--mode extend` is accepted and **gated** behind:
-  - Runtime flag: `--enable-extend-experimental`
-  - Build flag: `-Xswiftc -DEXTEND_EXPERIMENTAL`
-- When enabled, the sender attempts virtual display creation, but currently returns a **documented “not implemented”** error and **automatically falls back to mirror mode** with clear logs.
+- Runtime flag: `--enable-extend-experimental` (controls whether we attempt virtual display creation)
+- Build flag: `-Xswiftc -DEXTEND_EXPERIMENTAL` (required to compile any virtual-display attempt code)
+
+### Usable extend today (no driver required)
+
+Even without a true “virtual monitor”, Extend Mode is usable by capturing a **secondary display**:
+
+- If your Mac already has a second monitor, `--mode extend` will capture it by default.
+- If you don’t have a second monitor, a cheap **HDMI dummy plug** (or any extra display adapter) can create a second display to extend onto.
+
+The sender will:
+
+- Prefer a virtual display (only if `--enable-extend-experimental` and built with `-DEXTEND_EXPERIMENTAL`)
+- Otherwise capture a secondary display (if present)
+- Otherwise fall back to mirror (configurable with `--extend-fallback`)
+
+### Relevant flags
+
+- `--capture-display main|secondary`
+- `--capture-display-id <CGDirectDisplayID>`
+- `--extend-fallback secondary|mirror|fail`
 
 This keeps the CLI pipeline stable and makes the next step (DriverKit-based virtual display) an additive effort.
 

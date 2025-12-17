@@ -83,11 +83,9 @@ See [docs/PHASE.md](docs/PHASE.md) for current development status.
 
 Extend Mode is **not a stable feature yet**. The sender supports `--mode extend` as a best-effort path with a safe fallback to mirror.
 
-- To try it, pass:
-  - `--mode extend`
-  - `--enable-extend-experimental`
-  - and build with `-Xswiftc -DEXTEND_EXPERIMENTAL`
-- If virtual display setup isn’t available, the sender will **log a warning and fall back to mirror**.
+- **Usable today (no driver required):** `--mode extend` will capture a **secondary display** if your Mac has one (a cheap HDMI dummy plug also works to create a second display).
+- **Optional:** `--enable-extend-experimental` + build with `-Xswiftc -DEXTEND_EXPERIMENTAL` to attempt true virtual display creation (still experimental).
+- If the preferred extend path isn’t available, the sender will **fall back** based on `--extend-fallback` (defaults to capturing secondary, then main if needed).
 
 Details and the recommended long-term approach (DriverKit virtual display) are documented in `docs/EXTEND_MODE.md`.
 

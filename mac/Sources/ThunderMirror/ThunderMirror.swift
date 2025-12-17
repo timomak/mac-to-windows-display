@@ -27,9 +27,18 @@ struct ThunderMirror: AsyncParsableCommand {
 
     @Flag(
         name: .long,
-        help: "Enable experimental extend mode setup (requires building with -Xswiftc -DEXTEND_EXPERIMENTAL; otherwise will fall back to mirror)"
+        help: "Attempt experimental virtual display creation when using --mode extend (requires building with -Xswiftc -DEXTEND_EXPERIMENTAL). If unavailable, will fall back based on --extend-fallback."
     )
     var enableExtendExperimental: Bool = false
+
+    @Option(name: .long, help: "Capture display (main or secondary). Ignored if --capture-display-id is set.")
+    var captureDisplay: CaptureDisplay = .main
+
+    @Option(name: .long, help: "Explicit CGDirectDisplayID to capture (overrides --capture-display).")
+    var captureDisplayID: UInt32?
+
+    @Option(name: .long, help: "When extend mode setup fails: secondary, mirror, or fail.")
+    var extendFallback: ExtendFallback = .secondary
 
     @Option(name: .long, help: "Log level (debug, info, warn, error)")
     var logLevel: String = "info"
@@ -56,6 +65,9 @@ struct ThunderMirror: AsyncParsableCommand {
         let portValue = port
         let modeValue = mode
         let enableExtendExperimentalValue = enableExtendExperimental
+        let captureDisplayValue = captureDisplay
+        let captureDisplayIDValue = captureDisplayID
+        let extendFallbackValue = extendFallback
         let useTestPattern = testPattern
         let useRaw = raw
         let targetBitrate = Int32(bitrate * 1_000_000)
@@ -76,19 +88,18 @@ struct ThunderMirror: AsyncParsableCommand {
         logger.info("Source: \(useTestPattern ? "test pattern" : "screen capture")")
         logger.info("Encoding: \(useRaw ? "raw RGBA" : "H.264 @ \(bitrate) Mbps")")
 
-        // Resolve effective mode (extend is best-effort + gated)
-        var effectiveMode = modeValue
-        if modeValue == .extend {
-            if !enableExtendExperimentalValue {
-                logger.warning("Extend mode requested but --enable-extend-experimental was not set; falling back to mirror.")
-                effectiveMode = .mirror
-            } else {
-                #if !EXTEND_EXPERIMENTAL
-                logger.warning("Extend mode requested but this binary was not built with -DEXTEND_EXPERIMENTAL; falling back to mirror.")
-                effectiveMode = .mirror
-                #endif
-            }
-        }
+        // Extend mode is usable without virtual display creation:
+        // by default it will capture a secondary display if present, otherwise fall back per --extend-fallback.
+        let attemptVirtualDisplay: Bool = {
+            guard modeValue == .extend else { return false }
+            guard enableExtendExperimentalValue else { return false }
+            #if EXTEND_EXPERIMENTAL
+            return true
+            #else
+            logger.warning("Requested experimental virtual display attempt, but binary was not built with -DEXTEND_EXPERIMENTAL. Will fall back based on --extend-fallback.")
+            return false
+            #endif
+        }()
 
         // Connect to receiver
         let client = QuicClient()
@@ -112,7 +123,11 @@ struct ThunderMirror: AsyncParsableCommand {
                                     client: client,
                                     logger: logger,
                                     duration: runDuration,
-                                    mode: effectiveMode,
+                                    mode: modeValue,
+                                    attemptVirtualDisplay: attemptVirtualDisplay,
+                                    captureDisplay: captureDisplayValue,
+                                    captureDisplayID: captureDisplayIDValue,
+                                    extendFallback: extendFallbackValue,
                                     useH264: !useRaw,
                                     bitrate: targetBitrate
                                 )
@@ -142,6 +157,21 @@ enum StreamMode: String, ExpressibleByArgument, CustomStringConvertible {
     var description: String {
         rawValue
     }
+}
+
+enum CaptureDisplay: String, ExpressibleByArgument, CustomStringConvertible {
+    case main
+    case secondary
+
+    var description: String { rawValue }
+}
+
+enum ExtendFallback: String, ExpressibleByArgument, CustomStringConvertible {
+    case secondary
+    case mirror
+    case fail
+
+    var description: String { rawValue }
 }
 
 /// Stream test patterns (Phase 1 fallback) - free function to avoid self capture
@@ -223,6 +253,10 @@ func streamScreenCaptureAsync(
     logger: Logger,
     duration: Int,
     mode: StreamMode = .mirror,
+    attemptVirtualDisplay: Bool = false,
+    captureDisplay: CaptureDisplay = .main,
+    captureDisplayID: UInt32? = nil,
+    extendFallback: ExtendFallback = .secondary,
     useH264: Bool = true,
     bitrate: Int32 = 10_000_000
 ) async throws {
@@ -401,28 +435,62 @@ func streamScreenCaptureAsync(
         // Encoder will be re-initialized on next frame
     }
     
+    // Compute baseline capture selection.
+    let baseSelection: ScreenCapture.CaptureDisplaySelection = {
+        if let id = captureDisplayID {
+            return .displayID(CGDirectDisplayID(id))
+        }
+        // In extend mode, default to secondary unless user explicitly requested secondary/main.
+        if mode == .extend, captureDisplay == .main {
+            return .secondary
+        }
+        return captureDisplay == .secondary ? .secondary : .main
+    }()
+
     // Start capture
     do {
         switch mode {
         case .mirror:
-            try await capture.startCapture(preferredDisplayID: CGMainDisplayID())
+            try await capture.startCapture(selection: baseSelection)
         case .extend:
-            #if EXTEND_EXPERIMENTAL
-            do {
-                let manager = VirtualDisplayManager(logger: logger)
-                virtualDisplayHandle = try manager.createVirtualDisplay()
-                try await capture.startCapture(preferredDisplayID: virtualDisplayHandle?.displayID)
-            } catch {
-                logger.warning("Extend mode setup failed (\(error.localizedDescription)); falling back to mirror.")
-                virtualDisplayHandle?.teardown()
-                virtualDisplayHandle = nil
-                try await capture.startCapture(preferredDisplayID: CGMainDisplayID())
+            if attemptVirtualDisplay {
+                do {
+                    let manager = VirtualDisplayManager(logger: logger)
+                    virtualDisplayHandle = try manager.createVirtualDisplay()
+                    if let vdID = virtualDisplayHandle?.displayID {
+                        try await capture.startCapture(selection: .displayID(vdID))
+                    } else {
+                        throw ScreenCaptureError.captureError("Virtual display created without a displayID")
+                    }
+                } catch {
+                    logger.warning("Virtual display setup failed (\(error.localizedDescription)).")
+                    virtualDisplayHandle?.teardown()
+                    virtualDisplayHandle = nil
+                    // Fall through to extend fallback selection
+                    switch extendFallback {
+                    case .secondary:
+                        logger.info("Extend fallback: capturing secondary display (if present).")
+                        try await capture.startCapture(selection: .secondary)
+                    case .mirror:
+                        logger.info("Extend fallback: capturing main display (mirror).")
+                        try await capture.startCapture(selection: .main)
+                    case .fail:
+                        logger.error("Extend fallback: fail (aborting).")
+                        throw error
+                    }
+                }
+            } else {
+                // No virtual display attempt: use extend baseline selection (defaults to secondary).
+                switch extendFallback {
+                case .secondary:
+                    try await capture.startCapture(selection: baseSelection)
+                case .mirror:
+                    try await capture.startCapture(selection: .main)
+                case .fail:
+                    // If user asked to fail rather than degrade, do so when we can't attempt/create virtual display.
+                    throw ScreenCaptureError.captureError("Extend mode requested with --extend-fallback=fail, but no virtual display attempt is enabled/available.")
+                }
             }
-            #else
-            // Should be unreachable due to gating, but keep safe.
-            logger.warning("Extend mode path not compiled; falling back to mirror.")
-            try await capture.startCapture(preferredDisplayID: CGMainDisplayID())
-            #endif
         }
     } catch {
         virtualDisplayHandle?.teardown()
