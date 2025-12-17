@@ -93,11 +93,10 @@ class H264Encoder {
             logger.warning("Hardware encoder not available, using software")
         }
         
-        // Real-time encoding (prioritize low latency over quality)
-        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
-        guard status == noErr else {
-            throw H264EncoderError.configurationFailed("RealTime", status)
-        }
+        // NOTE: We intentionally do NOT set RealTime mode.
+        // RealTime=true tells the encoder to prioritize speed over quality, which causes
+        // visible quality degradation. M-series chips are fast enough to encode high-quality
+        // video without needing this trade-off.
         
         // High profile for best quality at high resolutions
         // (High profile supports CABAC, 8x8 transform, and better motion compensation)
@@ -106,24 +105,17 @@ class H264Encoder {
             throw H264EncoderError.configurationFailed("ProfileLevel", status)
         }
         
-        // Set bitrate - use both average and max to allow headroom for complex scenes
+        // Set bitrate
         let bitrateNum = CFNumberCreate(kCFAllocatorDefault, .intType, &bitrate)
         status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrateNum)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("AverageBitRate", status)
         }
         
-        // Allow 50% headroom for bitrate spikes (complex scenes, motion)
-        // DataRateLimits: [bytes_per_second, window_duration_seconds]
-        // Use 1.5x average over 1 second window - this is less restrictive than before
-        var maxBytesPerSecond = (bitrate + (bitrate / 2)) / 8
-        var windowSeconds: Float64 = 1.0
-        let maxBytesNum = CFNumberCreate(kCFAllocatorDefault, .intType, &maxBytesPerSecond)
-        let windowNum = CFNumberCreate(kCFAllocatorDefault, .float64Type, &windowSeconds)
-        if let bNum = maxBytesNum, let wNum = windowNum {
-            let limits = [bNum, wNum] as CFArray
-            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
-        }
+        // NOTE: We intentionally do NOT set DataRateLimits here.
+        // DataRateLimits can cause quality degradation when the encoder needs to spike
+        // bitrate for complex scenes. With Thunderbolt's bandwidth, we don't need to
+        // constrain instantaneous bitrate.
         
         // Set expected frame rate
         let expectedFrameRate = CFNumberCreate(kCFAllocatorDefault, .intType, &fps)
