@@ -324,8 +324,11 @@ func streamScreenCaptureAsync(
         sequence += 1
     }
     
-    // Handle frames from capture
-    capture.onFrame = { rgbaData, width, height in
+    // Configure capture: H.264 uses BGRA directly, raw needs RGBA for Windows receiver
+    capture.convertToRGBA = !useH264
+    
+    // Handle frames from capture (BGRA for H.264, RGBA for raw)
+    capture.onFrame = { frameData, width, height in
         guard !shouldStop else { return }
         
         currentWidth = width
@@ -344,7 +347,7 @@ func streamScreenCaptureAsync(
                 }
             }
             
-            // Create pixel buffer from RGBA data
+            // Create pixel buffer from BGRA data (no conversion needed!)
             var pixelBuffer: CVPixelBuffer?
             let attrs: [String: Any] = [
                 kCVPixelBufferCGImageCompatibilityKey as String: true,
@@ -372,21 +375,13 @@ func streamScreenCaptureAsync(
                 let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
                 let dest = baseAddress.assumingMemoryBound(to: UInt8.self)
                 
-                // Convert RGBA to BGRA
-                rgbaData.withUnsafeBytes { srcPtr in
+                // Fast copy - data is already BGRA, just handle row padding
+                frameData.withUnsafeBytes { srcPtr in
                     guard let src = srcPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
                     
+                    let srcBytesPerRow = Int(width) * 4
                     for y in 0..<Int(height) {
-                        for x in 0..<Int(width) {
-                            let srcOffset = (y * Int(width) + x) * 4
-                            let dstOffset = y * bytesPerRow + x * 4
-                            
-                            // RGBA -> BGRA
-                            dest[dstOffset + 0] = src[srcOffset + 2]  // B
-                            dest[dstOffset + 1] = src[srcOffset + 1]  // G
-                            dest[dstOffset + 2] = src[srcOffset + 0]  // R
-                            dest[dstOffset + 3] = src[srcOffset + 3]  // A
-                        }
+                        memcpy(dest.advanced(by: y * bytesPerRow), src.advanced(by: y * srcBytesPerRow), srcBytesPerRow)
                     }
                 }
             }
@@ -401,20 +396,20 @@ func streamScreenCaptureAsync(
             // Raw RGBA streaming (Phase 2 mode)
             let timestampUs = UInt64(Date().timeIntervalSince(startTime) * 1_000_000)
             
-            let frameData = createFrameData(
+            let framePayload = createFrameData(
                 sequence: sequence,
                 timestampUs: timestampUs,
                 width: width,
                 height: height,
-                payload: rgbaData,
+                payload: frameData,
                 frameType: 0  // RawFrame
             )
             
-            client.send(frameData) { sendResult in
+            client.send(framePayload) { sendResult in
                 switch sendResult {
                 case .success:
                     framesSinceStats += 1
-                    bytesSinceStats += UInt64(frameData.count)
+                    bytesSinceStats += UInt64(framePayload.count)
                     
                     // Log stats every second
                     let now = Date()

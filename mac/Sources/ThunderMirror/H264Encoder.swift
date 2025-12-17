@@ -99,18 +99,30 @@ class H264Encoder {
             throw H264EncoderError.configurationFailed("RealTime", status)
         }
         
-        // Main profile for better compression efficiency while maintaining low latency
-        // (Main profile supports CABAC and 8x8 transform for ~15-20% better compression)
-        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_Main_AutoLevel)
+        // High profile for best quality at high resolutions
+        // (High profile supports CABAC, 8x8 transform, and better motion compensation)
+        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_High_AutoLevel)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("ProfileLevel", status)
         }
         
-        // Set bitrate
+        // Set bitrate - use both average and max to allow headroom for complex scenes
         let bitrateNum = CFNumberCreate(kCFAllocatorDefault, .intType, &bitrate)
         status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrateNum)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("AverageBitRate", status)
+        }
+        
+        // Allow 50% headroom for bitrate spikes (complex scenes, motion)
+        // DataRateLimits: [bytes_per_second, window_duration_seconds]
+        // Use 1.5x average over 1 second window - this is less restrictive than before
+        var maxBytesPerSecond = (bitrate + (bitrate / 2)) / 8
+        var windowSeconds: Float64 = 1.0
+        let maxBytesNum = CFNumberCreate(kCFAllocatorDefault, .intType, &maxBytesPerSecond)
+        let windowNum = CFNumberCreate(kCFAllocatorDefault, .float64Type, &windowSeconds)
+        if let bNum = maxBytesNum, let wNum = windowNum {
+            let limits = [bNum, wNum] as CFArray
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
         }
         
         // Set expected frame rate
@@ -120,34 +132,26 @@ class H264Encoder {
             throw H264EncoderError.configurationFailed("ExpectedFrameRate", status)
         }
         
-        // Maximum keyframe interval (GOP size) - every 60 frames (1 second at 60fps)
-        // For lower latency, could use smaller value like 30 or even 1 (all keyframes)
-        var maxKeyFrameInterval: Int32 = 60
+        // Shorter keyframe interval for better error recovery and quality consistency
+        // Every 30 frames (0.5 second at 60fps) - more keyframes = more consistent quality
+        var maxKeyFrameInterval: Int32 = 30
         let maxKeyFrameIntervalNum = CFNumberCreate(kCFAllocatorDefault, .intType, &maxKeyFrameInterval)
         status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: maxKeyFrameIntervalNum)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("MaxKeyFrameInterval", status)
         }
         
-        // Disable B-frames for lower latency (baseline profile doesn't support them anyway)
+        // Disable B-frames for lower latency
         status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("AllowFrameReordering", status)
         }
         
-        // Data rate limits for consistent streaming
-        // Format: [bytes per second, duration in seconds]
-        var bytesPerSecond = bitrate / 8
-        var windowSeconds: Int32 = 1
-        let bytesNum = CFNumberCreate(kCFAllocatorDefault, .intType, &bytesPerSecond)
-        let windowNum = CFNumberCreate(kCFAllocatorDefault, .intType, &windowSeconds)
-        if let bNum = bytesNum, let wNum = windowNum {
-            let limits = [bNum, wNum] as CFArray
-            status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
-            // Not critical if this fails
-        }
+        // Prioritize quality over speed (encoder has plenty of headroom on M-series)
+        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_Quality, value: 1.0 as CFNumber)
+        // Not critical if this fails (some encoders don't support it)
         
-        logger.debug("Encoder configured for low latency: main profile, no B-frames, GOP=60")
+        logger.debug("Encoder configured: high profile, no B-frames, GOP=30, quality=max")
     }
     
     /// Encode a pixel buffer

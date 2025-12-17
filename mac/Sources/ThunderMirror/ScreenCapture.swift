@@ -23,8 +23,11 @@ class ScreenCapture: NSObject {
     private(set) var width: UInt16 = 0
     private(set) var height: UInt16 = 0
     
-    /// Frame callback - called for each captured frame
+    /// Frame callback - called for each captured frame (BGRA format)
     var onFrame: ((Data, UInt16, UInt16) -> Void)?
+    
+    /// If true, convert BGRA to RGBA before calling onFrame. Default false (BGRA is faster).
+    var convertToRGBA: Bool = false
     
     /// Resolution change callback
     var onResolutionChange: ((UInt16, UInt16) -> Void)?
@@ -189,35 +192,53 @@ class ScreenCapture: NSObject {
             onResolutionChange?(width, height)
         }
         
-        // Convert BGRA to RGBA
         let pixelCount = pixelWidth * pixelHeight
-        var rgbaData = Data(count: pixelCount * 4)
         
-        rgbaData.withUnsafeMutableBytes { rgbaPtr in
-            guard let rgbaDest = rgbaPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                return
-            }
+        if convertToRGBA {
+            // Convert BGRA to RGBA (slow - only use for raw streaming)
+            var rgbaData = Data(count: pixelCount * 4)
             
-            let bgraSource = baseAddress.assumingMemoryBound(to: UInt8.self)
-            
-            for y in 0..<pixelHeight {
-                let rowOffset = y * bytesPerRow
-                let destRowOffset = y * pixelWidth * 4
+            rgbaData.withUnsafeMutableBytes { rgbaPtr in
+                guard let rgbaDest = rgbaPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return
+                }
                 
-                for x in 0..<pixelWidth {
-                    let srcOffset = rowOffset + x * 4
-                    let destOffset = destRowOffset + x * 4
+                let bgraSource = baseAddress.assumingMemoryBound(to: UInt8.self)
+                
+                for y in 0..<pixelHeight {
+                    let rowOffset = y * bytesPerRow
+                    let destRowOffset = y * pixelWidth * 4
                     
-                    // BGRA -> RGBA
-                    rgbaDest[destOffset + 0] = bgraSource[srcOffset + 2] // R
-                    rgbaDest[destOffset + 1] = bgraSource[srcOffset + 1] // G
-                    rgbaDest[destOffset + 2] = bgraSource[srcOffset + 0] // B
-                    rgbaDest[destOffset + 3] = bgraSource[srcOffset + 3] // A
+                    for x in 0..<pixelWidth {
+                        let srcOffset = rowOffset + x * 4
+                        let destOffset = destRowOffset + x * 4
+                        
+                        // BGRA -> RGBA
+                        rgbaDest[destOffset + 0] = bgraSource[srcOffset + 2] // R
+                        rgbaDest[destOffset + 1] = bgraSource[srcOffset + 1] // G
+                        rgbaDest[destOffset + 2] = bgraSource[srcOffset + 0] // B
+                        rgbaDest[destOffset + 3] = bgraSource[srcOffset + 3] // A
+                    }
                 }
             }
+            
+            onFrame?(rgbaData, width, height)
+        } else {
+            // Pass BGRA directly (fast path for H.264 encoding)
+            // Copy row by row to handle bytesPerRow padding
+            var bgraData = Data(count: pixelCount * 4)
+            bgraData.withUnsafeMutableBytes { destPtr in
+                guard let dest = destPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+                let src = baseAddress.assumingMemoryBound(to: UInt8.self)
+                
+                for y in 0..<pixelHeight {
+                    let srcOffset = y * bytesPerRow
+                    let dstOffset = y * pixelWidth * 4
+                    memcpy(dest.advanced(by: dstOffset), src.advanced(by: srcOffset), pixelWidth * 4)
+                }
+            }
+            onFrame?(bgraData, width, height)
         }
-        
-        onFrame?(rgbaData, width, height)
     }
 }
 
