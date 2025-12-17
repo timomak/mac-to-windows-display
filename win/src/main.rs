@@ -293,7 +293,8 @@ async fn handle_connection(
     // byte stream containing repeated (header + payload) frames.
 
     let conn_bi = conn.clone();
-    let conn_uni = conn;
+    let conn_uni = conn.clone();
+    let conn_dgram = conn;
 
     let tx_bi = tx.clone();
     let bi_task = tokio::spawn(async move {
@@ -313,6 +314,7 @@ async fn handle_connection(
         }
     });
 
+    let tx_uni = tx.clone();
     let uni_task = tokio::spawn(async move {
         loop {
             match conn_uni.accept_uni().await {
@@ -331,7 +333,7 @@ async fn handle_connection(
                         continue;
                     }
 
-                    if let Err(e) = handle_single_frame_datagramlike(data, tx.clone()).await {
+                    if let Err(e) = handle_single_frame_datagramlike(data, tx_uni.clone()).await {
                         warn!("Failed to parse uni frame: {}", e);
                     }
                 }
@@ -343,8 +345,29 @@ async fn handle_connection(
         }
     });
 
+    // macOS Network.framework's QUIC integration may deliver application data via QUIC DATAGRAMS
+    // when using NWConnection.send(content:...). Support that as well for maximum interop.
+    let tx_dgram = tx;
+    let dgram_task = tokio::spawn(async move {
+        loop {
+            match conn_dgram.read_datagram().await {
+                Ok(dgram) => {
+                    // Datagram should contain exactly one frame (header + payload).
+                    if let Err(e) = handle_single_frame_datagramlike(dgram.to_vec(), tx_dgram.clone()).await
+                    {
+                        debug!("Failed to parse datagram frame: {}", e);
+                    }
+                }
+                Err(e) => {
+                    info!("Connection closed (datagram recv): {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
     // Wait for either accept loop to finish (connection closed).
-    let _ = tokio::join!(bi_task, uni_task);
+    let _ = tokio::join!(bi_task, uni_task, dgram_task);
     Ok(())
 }
 
@@ -520,7 +543,11 @@ fn create_server_config() -> anyhow::Result<ServerConfig> {
     rustls_config.alpn_protocols = vec![b"thunder-mirror".to_vec()];
 
     let mut server_config = ServerConfig::with_crypto(Arc::new(rustls_config));
-    server_config.transport = Arc::new(quinn::TransportConfig::default());
+
+    // Enable QUIC DATAGRAMS (needed for some client stacks) and keep defaults otherwise.
+    let mut transport = quinn::TransportConfig::default();
+    transport.datagram_receive_buffer_size(Some(16 * 1024 * 1024));
+    server_config.transport = Arc::new(transport);
 
     Ok(server_config)
 }
