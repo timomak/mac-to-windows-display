@@ -29,6 +29,9 @@ class ScreenCapture: NSObject {
     /// Resolution change callback
     var onResolutionChange: ((UInt16, UInt16) -> Void)?
     
+    /// Whether to capture at native (physical pixel) resolution. Default true for Retina quality.
+    var captureAtNativeResolution: Bool = true
+
     /// Start capturing the screen
     /// - Throws: Error if capture cannot be started
     func startCapture(selection: CaptureDisplaySelection = .main) async throws {
@@ -70,18 +73,34 @@ class ScreenCapture: NSObject {
             }
         }
         
-        logger.info("Using displayID \(display.displayID): \(display.width)x\(display.height)")
+        // Query physical pixel dimensions (Retina-aware).
+        let nativeWidth = Int(CGDisplayPixelsWide(display.displayID))
+        let nativeHeight = Int(CGDisplayPixelsHigh(display.displayID))
+        let logicalWidth = display.width
+        let logicalHeight = display.height
+
+        let captureWidth: Int
+        let captureHeight: Int
+        if captureAtNativeResolution && nativeWidth > 0 && nativeHeight > 0 {
+            captureWidth = nativeWidth
+            captureHeight = nativeHeight
+            logger.info("Using displayID \(display.displayID): \(captureWidth)x\(captureHeight) (native pixels)")
+        } else {
+            captureWidth = logicalWidth
+            captureHeight = logicalHeight
+            logger.info("Using displayID \(display.displayID): \(captureWidth)x\(captureHeight) (logical points)")
+        }
         
         // Store initial resolution
-        width = UInt16(display.width)
-        height = UInt16(display.height)
+        width = UInt16(captureWidth)
+        height = UInt16(captureHeight)
         
         // Configure stream
         let filter = SCContentFilter(display: display, excludingWindows: [])
         
         let config = SCStreamConfiguration()
-        config.width = display.width
-        config.height = display.height
+        config.width = captureWidth
+        config.height = captureHeight
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60) // 60 fps
         config.queueDepth = 3
         config.pixelFormat = kCVPixelFormatType_32BGRA // BGRA format (will convert to RGBA)

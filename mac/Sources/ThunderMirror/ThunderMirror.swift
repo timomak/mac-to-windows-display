@@ -40,6 +40,9 @@ struct ThunderMirror: AsyncParsableCommand {
     @Option(name: .long, help: "When extend mode setup fails: secondary, mirror, or fail.")
     var extendFallback: ExtendFallback = .secondary
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Capture at native (physical pixel) resolution. Default: true (Retina quality). Use --no-native-resolution for lower-res capture.")
+    var nativeResolution: Bool = true
+
     @Option(name: .long, help: "Log level (debug, info, warn, error)")
     var logLevel: String = "info"
 
@@ -68,6 +71,7 @@ struct ThunderMirror: AsyncParsableCommand {
         let captureDisplayValue = captureDisplay
         let captureDisplayIDValue = captureDisplayID
         let extendFallbackValue = extendFallback
+        let nativeResolutionValue = nativeResolution
         let useTestPattern = testPattern
         let useRaw = raw
         let targetBitrate = Int32(bitrate * 1_000_000)
@@ -128,6 +132,7 @@ struct ThunderMirror: AsyncParsableCommand {
                                     captureDisplay: captureDisplayValue,
                                     captureDisplayID: captureDisplayIDValue,
                                     extendFallback: extendFallbackValue,
+                                    nativeResolution: nativeResolutionValue,
                                     useH264: !useRaw,
                                     bitrate: targetBitrate
                                 )
@@ -257,12 +262,14 @@ func streamScreenCaptureAsync(
     captureDisplay: CaptureDisplay = .main,
     captureDisplayID: UInt32? = nil,
     extendFallback: ExtendFallback = .secondary,
+    nativeResolution: Bool = true,
     useH264: Bool = true,
     bitrate: Int32 = 10_000_000
 ) async throws {
-    logger.info("Starting screen capture (mode: \(mode), H.264: \(useH264))...")
+    logger.info("Starting screen capture (mode: \(mode), H.264: \(useH264), native: \(nativeResolution))...")
     
     let capture = ScreenCapture()
+    capture.captureAtNativeResolution = nativeResolution
     let encoder: H264Encoder? = useH264 ? H264Encoder() : nil
     var virtualDisplayHandle: VirtualDisplayHandle?
     
