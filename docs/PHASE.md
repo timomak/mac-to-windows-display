@@ -4,7 +4,7 @@ This document tracks development progress. Each phase builds on the previous one
 
 **Current Phase:** `PHASE=5`
 
-**Current Focus:** Performance benchmarks + max-spec validation
+**Current Focus:** Standalone packaged applications with icons
 
 ---
 
@@ -200,7 +200,42 @@ This document tracks development progress. Each phase builds on the previous one
 
 ---
 
-## Phase 5: Maximum Performance (Stress Test)
+## Phase 5: Standalone Apps (Packaged Applications)
+
+**Goal:** Package both sender and receiver as standalone applications with icons that users can double-click to launch.
+
+### Checklist
+
+- [ ] Create macOS app bundle (.app)
+  - *Acceptance:* `ThunderMirror.app` in `mac/build/` can be double-clicked to launch
+
+- [ ] Design and add macOS app icon
+  - *Acceptance:* App shows custom icon in Dock and Finder (not generic Swift icon)
+
+- [ ] Sign macOS app for local use (ad-hoc or Developer ID)
+  - *Acceptance:* App launches without Gatekeeper blocking (or with single right-click approval)
+
+- [ ] Add macOS app to `/Applications` install script
+  - *Acceptance:* `scripts/install_mac.sh` copies app to Applications folder
+
+- [ ] Create Windows executable installer or portable .exe
+  - *Acceptance:* `ThunderReceiver.exe` can be double-clicked to launch from any folder
+
+- [ ] Design and add Windows app icon
+  - *Acceptance:* .exe shows custom icon in Explorer and taskbar
+
+- [ ] Create Windows installer (optional: NSIS or WiX)
+  - *Acceptance:* Installer creates Start Menu shortcut and desktop icon
+
+- [ ] Add launch-on-startup option (both platforms)
+  - *Acceptance:* Settings toggle to auto-start when machines connect
+
+- [ ] Update README with app installation instructions
+  - *Acceptance:* README explains how to install and launch apps (not just CLI)
+
+---
+
+## Phase 6: Maximum Performance (Stress Test)
 
 **Goal:** Push the Thunderbolt connection to its limits with maximum resolution, refresh rate, and quality.
 
@@ -246,3 +281,4 @@ This document tracks development progress. Each phase builds on the previous one
 | 3.5 | 7 | 7 | ✅ Done |
 | 4 | 5 | 5 | ✅ Done |
 | 5 | 9 | 0 | 🔲 |
+| 6 | 9 | 0 | 🔲 |

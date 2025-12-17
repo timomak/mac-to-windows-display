@@ -79,7 +79,8 @@ See [docs/PHASE.md](docs/PHASE.md) for current development status.
 | 3 | H.264 encode/decode + polish | ✅ |
 | 3.5 | UI shells (optional) | ✅ |
 | 4 | Extend mode (experimental) | ✅ (scaffolding + docs) |
-| 5 | Maximum performance (stress test) | 🔲 |
+| 5 | Standalone apps (packaged with icons) | 🔲 |
+| 6 | Maximum performance (stress test) | 🔲 |
 
 ## Extend Mode (Experimental)
 
