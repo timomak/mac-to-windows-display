@@ -71,9 +71,7 @@ cat > "$MCP_CONFIG" << 'EOF'
       "command": "npx",
       "args": [
         "-y",
-        "@anthropic/mcp-ssh@latest",
-        "--host",
-        "blade18-tb"
+        "@aiondadotcom/mcp-ssh@latest"
       ],
       "env": {}
     }

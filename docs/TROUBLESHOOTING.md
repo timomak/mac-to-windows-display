@@ -485,7 +485,7 @@ tccutil reset ScreenCapture com.thundermirror.sender
 
 2. **Check MCP package:**
    ```bash
-   npx -y @anthropic/mcp-ssh@latest --help
+   npx -y @aiondadotcom/mcp-ssh@latest
    ```
 
 3. **Check Cursor logs:**

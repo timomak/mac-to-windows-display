@@ -181,8 +181,7 @@ The `.cursor/mcp.json` file:
       "command": "npx",
       "args": [
         "-y",
-        "@anthropic/mcp-ssh@latest",
-        "--host", "blade18-tb"
+        "@aiondadotcom/mcp-ssh@latest"
       ]
     }
   }
@@ -238,7 +237,7 @@ If you entered the wrong Windows username:
 
 2. **Check MCP package availability:**
    ```bash
-   npx -y @anthropic/mcp-ssh@latest --help
+   npx -y @aiondadotcom/mcp-ssh@latest
    ```
 
 3. **Try project-level config:**

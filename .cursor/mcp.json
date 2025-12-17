@@ -4,9 +4,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@anthropic/mcp-ssh@latest",
-        "--host",
-        "blade18-tb"
+        "@aiondadotcom/mcp-ssh@latest"
       ],
       "env": {}
     },
@@ -14,9 +12,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@anthropic/mcp-ssh@latest",
-        "--host",
-        "mac-tb"
+        "@aiondadotcom/mcp-ssh@latest"
       ],
       "env": {}
     }
