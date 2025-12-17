@@ -1,14 +1,16 @@
 <#
 .SYNOPSIS
-    Build and run the Windows viewer UI (Start/Stop + logs).
+    Build and run the ThunderReceiver Windows app.
 
 .DESCRIPTION
-    Builds the Windows receiver UI (`thunder_receiver_ui.exe`) and runs it.
-    The UI launches the existing `thunder_receiver.exe` CLI as a child process and
-    surfaces connection + stats in a small Win32 window.
+    Builds the ThunderReceiver application if needed and launches it.
+
+.PARAMETER Rebuild
+    Force a rebuild even if the executable exists.
 #>
 
 param(
+    [switch]$Rebuild,
     [Parameter(ValueFromRemainingArguments=$true)]
     [string[]]$Args
 )
@@ -18,57 +20,23 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 $WinDir = Join-Path $ProjectDir "win"
+$BuildDir = Join-Path $WinDir "build"
+$Executable = Join-Path $BuildDir "ThunderReceiver.exe"
 
-Write-Host "========================================"
-Write-Host "ThunderMirror - Windows Viewer UI"
-Write-Host "========================================"
-Write-Host ""
-
-# Ensure logs directory exists
-$LogsDir = Join-Path $ProjectDir "logs"
-if (!(Test-Path $LogsDir)) {
-    New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
-}
-
-# Build (release)
-Write-Host "[1/2] Building..."
-
-Push-Location $WinDir
-try {
-    # Temporarily allow stderr output without treating it as an error
-    # (cargo outputs warnings to stderr, which PowerShell treats as errors)
-    $prevErrorActionPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-
-    $buildOutput = cargo build --release 2>&1
-    $buildExitCode = $LASTEXITCODE
-
-    $ErrorActionPreference = $prevErrorActionPreference
-
-    if ($buildExitCode -eq 0) {
-        Write-Host "      Build successful"
-    } else {
-        Write-Host "      Build failed:"
-        Write-Host $buildOutput
+# Build if needed
+if ($Rebuild -or !(Test-Path $Executable)) {
+    & "$ScriptDir\build_win_app.ps1"
+    if ($LASTEXITCODE -ne 0) {
         exit 1
     }
-} finally {
-    Pop-Location
+    Write-Host ""
 }
 
-# Run UI
-Write-Host ""
-Write-Host "[2/2] Running..."
-Write-Host ""
-
-$Executable = Join-Path $WinDir "target\release\thunder_receiver_ui.exe"
-
-if (Test-Path $Executable) {
-    & $Executable @Args
-} else {
-    Write-Host "ERROR: Executable not found at $Executable"
-    Write-Host ""
-    Write-Host "Try building manually:"
-    Write-Host "  cd win; cargo build --release"
+# Check if executable exists
+if (!(Test-Path $Executable)) {
+    Write-Host "ERROR: Executable not found. Run with -Rebuild flag."
     exit 1
 }
+
+Write-Host "Launching ThunderReceiver..."
+& $Executable @Args

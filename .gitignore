@@ -2,6 +2,7 @@
 /target/
 /shared/target/
 /win/target/
+/win/build/
 /mac/.build/
 /mac/.swiftpm/
 /mac/build/

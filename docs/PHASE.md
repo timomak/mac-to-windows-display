@@ -215,22 +215,22 @@ This document tracks development progress. Each phase builds on the previous one
 - [ ] Sign macOS app for local use (ad-hoc or Developer ID)
   - *Acceptance:* App launches without Gatekeeper blocking (or with single right-click approval)
 
-- [ ] Add macOS app to `/Applications` install script
+- [x] Add macOS app to `/Applications` install script
   - *Acceptance:* `scripts/install_mac.sh` copies app to Applications folder
 
-- [ ] Create Windows executable installer or portable .exe
+- [x] Create Windows executable installer or portable .exe
   - *Acceptance:* `ThunderReceiver.exe` can be double-clicked to launch from any folder
 
 - [ ] Design and add Windows app icon
   - *Acceptance:* .exe shows custom icon in Explorer and taskbar
 
-- [ ] Create Windows installer (optional: NSIS or WiX)
+- [x] Create Windows installer (optional: NSIS or WiX)
   - *Acceptance:* Installer creates Start Menu shortcut and desktop icon
 
 - [ ] Add launch-on-startup option (both platforms)
   - *Acceptance:* Settings toggle to auto-start when machines connect
 
-- [ ] Update README with app installation instructions
+- [x] Update README with app installation instructions
   - *Acceptance:* README explains how to install and launch apps (not just CLI)
 
 ---
@@ -280,5 +280,5 @@ This document tracks development progress. Each phase builds on the previous one
 | 3 | 7 | 7 | ✅ Done |
 | 3.5 | 7 | 7 | ✅ Done |
 | 4 | 5 | 5 | ✅ Done |
-| 5 | 9 | 1 | 🔄 |
+| 5 | 9 | 5 | 🔄 |
 | 6 | 9 | 0 | 🔲 |

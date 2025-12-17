@@ -1,0 +1,104 @@
+<#
+.SYNOPSIS
+    Build ThunderReceiver.exe - the Windows receiver application.
+
+.DESCRIPTION
+    Builds the ThunderReceiver Windows application as a release executable.
+    The built .exe can be double-clicked to launch the receiver.
+
+.PARAMETER OutputDir
+    Optional output directory for the built executable. Defaults to win/build/.
+#>
+
+param(
+    [string]$OutputDir = ""
+)
+
+$ErrorActionPreference = "Stop"
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectDir = Split-Path -Parent $ScriptDir
+$WinDir = Join-Path $ProjectDir "win"
+$DefaultBuildDir = Join-Path $WinDir "build"
+
+if ($OutputDir -eq "") {
+    $OutputDir = $DefaultBuildDir
+}
+
+Write-Host "========================================"
+Write-Host "Building ThunderReceiver.exe"
+Write-Host "========================================"
+Write-Host ""
+
+# Ensure output directory exists
+if (!(Test-Path $OutputDir)) {
+    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+}
+
+# Build the release executable
+Write-Host "[1/3] Building Rust project (release)..."
+Write-Host ""
+
+Push-Location $WinDir
+try {
+    # Run cargo build
+    $env:CARGO_TERM_COLOR = "always"
+    cargo build --release --bin ThunderReceiver
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "ERROR: Build failed with exit code $LASTEXITCODE"
+        exit 1
+    }
+    
+    Write-Host ""
+    Write-Host "      Build successful"
+} finally {
+    Pop-Location
+}
+
+# Copy executable to output directory
+Write-Host ""
+Write-Host "[2/3] Copying executable..."
+
+$SourceExe = Join-Path $WinDir "target\release\ThunderReceiver.exe"
+$DestExe = Join-Path $OutputDir "ThunderReceiver.exe"
+
+if (Test-Path $SourceExe) {
+    Copy-Item -Path $SourceExe -Destination $DestExe -Force
+    Write-Host "      Copied to: $DestExe"
+} else {
+    Write-Host "ERROR: Built executable not found at $SourceExe"
+    exit 1
+}
+
+# Verify the executable
+Write-Host ""
+Write-Host "[3/3] Verifying..."
+
+if (Test-Path $DestExe) {
+    $fileInfo = Get-Item $DestExe
+    $sizeMB = [math]::Round($fileInfo.Length / 1MB, 2)
+    Write-Host "      Executable size: $sizeMB MB"
+    Write-Host "      OK"
+} else {
+    Write-Host "ERROR: Verification failed"
+    exit 1
+}
+
+Write-Host ""
+Write-Host "========================================"
+Write-Host "Build complete!"
+Write-Host "========================================"
+Write-Host ""
+Write-Host "Executable: $DestExe"
+Write-Host ""
+Write-Host "To run:"
+Write-Host "  & `"$DestExe`""
+Write-Host ""
+Write-Host "To create a desktop shortcut:"
+Write-Host "  Right-click the .exe -> Send to -> Desktop (create shortcut)"
+Write-Host ""
+Write-Host "To add to Start Menu:"
+Write-Host "  Copy to: $env:APPDATA\Microsoft\Windows\Start Menu\Programs\"
+

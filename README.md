@@ -11,6 +11,36 @@ Open-source, free, low-latency screen mirroring (and experimental extending) fro
 - **Free & Open Source:** MIT licensed, no paid dependencies
 - **Extend Mode (v2, Experimental):** Virtual display support (behind feature flags)
 
+## 🚀 Build Standalone Apps
+
+Build double-clickable applications for both platforms:
+
+### macOS — ThunderMirror.app
+
+```bash
+# Build the app bundle
+./scripts/build_mac_app.sh
+
+# Or build and install to /Applications
+./scripts/install_mac.sh
+```
+
+The app is built to `mac/build/ThunderMirror.app`. Double-click to launch, or find it in Launchpad after installing.
+
+### Windows — ThunderReceiver.exe
+
+```powershell
+# Build the executable
+.\scripts\build_win_app.ps1
+
+# Or build and install with Start Menu shortcut
+.\scripts\install_win.ps1
+```
+
+The app is built to `win\build\ThunderReceiver.exe`. Double-click to launch, or search "ThunderReceiver" in Start Menu after installing.
+
+---
+
 ## Hardware Requirements
 
 - **Mac:** Any Mac with Thunderbolt 3/4 or USB4 port (tested on M1 MacBook Pro)
@@ -79,7 +109,7 @@ See [docs/PHASE.md](docs/PHASE.md) for current development status.
 | 3 | H.264 encode/decode + polish | ✅ |
 | 3.5 | UI shells (optional) | ✅ |
 | 4 | Extend mode (experimental) | ✅ (scaffolding + docs) |
-| 5 | Standalone apps (packaged with icons) | 🔲 |
+| 5 | Standalone apps (packaged with icons) | 🔄 |
 | 6 | Maximum performance (stress test) | 🔲 |
 
 ## Extend Mode (Experimental)

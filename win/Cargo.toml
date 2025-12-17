@@ -4,10 +4,15 @@ version = "0.2.0"
 edition = "2021"
 description = "ThunderMirror Windows receiver - displays streamed content from Mac"
 license = "MIT"
+build = "build.rs"
 
 [[bin]]
 name = "thunder_receiver"
 path = "src/main.rs"
+
+[[bin]]
+name = "ThunderReceiver"
+path = "src/bin/thunder_receiver_ui.rs"
 
 [dependencies]
 # Logging
@@ -44,6 +49,9 @@ openh264 = "0.6"
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[build-dependencies]
+winres = "0.1"
 
 [features]
 default = []
