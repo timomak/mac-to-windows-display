@@ -105,17 +105,31 @@ class H264Encoder {
             throw H264EncoderError.configurationFailed("ProfileLevel", status)
         }
         
-        // Set bitrate
+        // Set bitrate with generous limits to maintain quality
         let bitrateNum = CFNumberCreate(kCFAllocatorDefault, .intType, &bitrate)
         status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrateNum)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("AverageBitRate", status)
         }
         
-        // NOTE: We intentionally do NOT set DataRateLimits here.
-        // DataRateLimits can cause quality degradation when the encoder needs to spike
-        // bitrate for complex scenes. With Thunderbolt's bandwidth, we don't need to
-        // constrain instantaneous bitrate.
+        // Set data rate limits to prevent the encoder from dropping quality
+        // Allow 2x the average bitrate for 1 second bursts
+        // Format: [bytes per second, duration in seconds]
+        let bytesPerSecond = Double(bitrate) / 8.0 * 2.0  // 2x average for headroom
+        let limits: [Double] = [bytesPerSecond, 1.0]
+        let limitsArray = limits as CFArray
+        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitsArray)
+        // Not fatal if this fails - some encoders don't support it
+        if status != noErr {
+            logger.debug("DataRateLimits not supported, using average bitrate only")
+        }
+        
+        // Enable constant bit rate mode for consistent quality
+        // This prevents the encoder from dropping quality when it "learns" the content
+        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ConstantBitRate, value: kCFBooleanTrue)
+        if status != noErr {
+            logger.debug("ConstantBitRate not supported, using default rate control")
+        }
         
         // Set expected frame rate
         let expectedFrameRate = CFNumberCreate(kCFAllocatorDefault, .intType, &fps)

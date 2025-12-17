@@ -9,26 +9,50 @@ use std::time::{Duration, Instant};
 use bytes::{Buf, Bytes};
 use clap::Parser;
 use minifb::{Key, Window, WindowOptions};
+
+#[cfg(windows)]
+use windows::Win32::Foundation::HWND;
+#[cfg(windows)]
+use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
+#[cfg(windows)]
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, SetWindowPos, HWND_TOPMOST, SWP_SHOWWINDOW,
+};
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
 
-/// Fast YUV to RGB conversion using integer math (BT.709 full range)
-/// VideoToolbox encodes with full range, so we decode with full range coefficients
+/// Fast YUV to RGB conversion using integer math (BT.709 LIMITED range)
+/// VideoToolbox outputs limited range: Y=[16,235], UV=[16,240]
+/// This function expands to full RGB [0,255]
 #[inline(always)]
-fn yuv_to_rgb_bt709_fast(y: u8, u: u8, v: u8) -> (u8, u8, u8) {
-    // Fixed point arithmetic (shift by 10 bits = multiply by 1024)
-    // BT.709 coefficients scaled by 1024:
-    // R = Y + 1.5748 * V' => Y + 1613 * V' / 1024
-    // G = Y - 0.1873 * U' - 0.4681 * V' => Y - (192 * U' + 479 * V') / 1024
-    // B = Y + 1.8556 * U' => Y + 1900 * U' / 1024
+fn yuv_to_rgb_bt709_limited(y: u8, u: u8, v: u8) -> (u8, u8, u8) {
+    // BT.709 limited range to full range RGB conversion
+    // First expand Y from [16,235] to [0,255]: Y' = (Y - 16) * 255 / 219
+    // Expand UV from [16,240] centered at 128 to [-128,127]: UV' = (UV - 128) * 255 / 224
+    //
+    // Then apply BT.709 matrix:
+    // R = Y' + 1.5748 * V'
+    // G = Y' - 0.1873 * U' - 0.4681 * V'  
+    // B = Y' + 1.8556 * U'
+    //
+    // Combined with fixed-point (shift by 10 = divide by 1024):
+    // Y scale: 255/219 * 1024 ≈ 1192
+    // UV scale: 255/224 ≈ 1.138, so coefficients become:
+    // R coeff for V: 1.5748 * 1.138 * 1024 ≈ 1836
+    // G coeff for U: 0.1873 * 1.138 * 1024 ≈ 218
+    // G coeff for V: 0.4681 * 1.138 * 1024 ≈ 545
+    // B coeff for U: 1.8556 * 1.138 * 1024 ≈ 2160
     
-    let y_i = y as i32;
+    let y_i = y as i32 - 16;
     let u_i = u as i32 - 128;
     let v_i = v as i32 - 128;
 
-    let r = y_i + ((1613 * v_i) >> 10);
-    let g = y_i - ((192 * u_i + 479 * v_i) >> 10);
-    let b = y_i + ((1900 * u_i) >> 10);
+    // Scale Y from limited to full range, apply matrix
+    let y_scaled = (y_i * 1192) >> 10;  // Expands Y from [16,235] to [0,255]
+    
+    let r = y_scaled + ((1836 * v_i) >> 10);
+    let g = y_scaled - ((218 * u_i + 545 * v_i) >> 10);
+    let b = y_scaled + ((2160 * u_i) >> 10);
 
     (
         r.clamp(0, 255) as u8,
@@ -105,6 +129,70 @@ struct FrameData {
     frame_type: FrameType,
 }
 
+/// Get screen dimensions for fullscreen mode
+#[cfg(windows)]
+fn get_screen_dimensions() -> Option<(usize, usize)> {
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+        let width = GetSystemMetrics(SM_CXSCREEN) as usize;
+        let height = GetSystemMetrics(SM_CYSCREEN) as usize;
+        if width > 0 && height > 0 {
+            Some((width, height))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn get_screen_dimensions() -> Option<(usize, usize)> {
+    None
+}
+
+/// Set window to true fullscreen by positioning at (0,0) covering entire screen
+#[cfg(windows)]
+fn set_window_fullscreen(window: &Window) {
+    unsafe {
+        use windows::core::w;
+        
+        // Find the window by searching for our window title
+        // minifb creates windows with the title we specified
+        let hwnd = FindWindowW(None, w!("ThunderMirror - Waiting for stream..."));
+        
+        if hwnd.0 != 0 {
+            // Get the monitor info for accurate fullscreen
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
+            let mut mi = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            
+            if GetMonitorInfoW(monitor, &mut mi).as_bool() {
+                let width = mi.rcMonitor.right - mi.rcMonitor.left;
+                let height = mi.rcMonitor.bottom - mi.rcMonitor.top;
+                
+                // Position window at monitor origin with full size, topmost
+                let _ = SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    mi.rcMonitor.left,
+                    mi.rcMonitor.top,
+                    width,
+                    height,
+                    SWP_SHOWWINDOW,
+                );
+            }
+        }
+    }
+    // Suppress unused warning on non-windows
+    let _ = window;
+}
+
+#[cfg(not(windows))]
+fn set_window_fullscreen(_window: &Window) {
+    // No-op on non-Windows
+}
+
 fn resize_window_and_buffers(
     _window: &mut Window,
     width: &mut usize,
@@ -171,10 +259,18 @@ fn main() -> anyhow::Result<()> {
     let mut height: usize = 1080;
     let mut buffer: Vec<u32> = vec![0; width * height];
 
+    let (window_width, window_height) = if args.fullscreen {
+        // Get the primary monitor dimensions for true fullscreen
+        get_screen_dimensions().unwrap_or((width, height))
+    } else {
+        (width, height)
+    };
+
     let window_opts = if args.fullscreen {
         WindowOptions {
-            resize: true,
+            resize: false,
             borderless: true,
+            topmost: true,
             ..Default::default()
         }
     } else {
@@ -186,10 +282,15 @@ fn main() -> anyhow::Result<()> {
 
     let mut window = Window::new(
         "ThunderMirror - Waiting for stream...",
-        width,
-        height,
+        window_width,
+        window_height,
         window_opts,
     )?;
+
+    // For true fullscreen, position window at (0,0) to cover entire screen
+    if args.fullscreen {
+        set_window_fullscreen(&window);
+    }
 
     // Limit to ~60 fps for display
     window.set_target_fps(60);
@@ -258,7 +359,7 @@ fn main() -> anyhow::Result<()> {
                                     let u = u_plane[u_idx];
                                     let v = v_plane[v_idx];
 
-                                    let (r, g, b) = yuv_to_rgb_bt709_fast(y, u, v);
+                                    let (r, g, b) = yuv_to_rgb_bt709_limited(y, u, v);
                                     
                                     let pixel_idx = row * dec_width + col;
                                     if pixel_idx < buffer.len() {

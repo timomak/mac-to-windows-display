@@ -50,33 +50,46 @@ class ScreenCapture: NSObject {
         
         // Query physical pixel dimensions (Retina-aware)
         let displayMode = CGDisplayCopyDisplayMode(display.displayID)
-        let nativeWidth = displayMode?.pixelWidth ?? 0
-        let nativeHeight = displayMode?.pixelHeight ?? 0
+        let nativeWidth = displayMode?.pixelWidth ?? display.width
+        let nativeHeight = displayMode?.pixelHeight ?? display.height
         let logicalWidth = display.width
         let logicalHeight = display.height
         
         var captureWidth: Int
         var captureHeight: Int
         
-        if captureAtNativeResolution && nativeWidth > 0 && nativeHeight > 0 {
+        // Determine target resolution based on maxWidth setting
+        // If maxWidth is set and larger than logical, use native and scale down
+        // If maxWidth is Native (9999) or larger than native, use full native
+        let effectiveMaxWidth = maxWidth ?? 9999
+        
+        if effectiveMaxWidth >= nativeWidth || effectiveMaxWidth >= 9999 {
+            // Use full native resolution
             captureWidth = nativeWidth
             captureHeight = nativeHeight
-            logger.info("Source: \(captureWidth)x\(captureHeight) (native Retina)")
-        } else {
-            captureWidth = logicalWidth
-            captureHeight = logicalHeight
-            logger.info("Source: \(captureWidth)x\(captureHeight) (logical)")
-        }
-        
-        // Apply maxWidth if specified and source is wider
-        if let maxW = maxWidth, maxW < 9999, captureWidth > maxW {
-            let aspectRatio = Double(captureHeight) / Double(captureWidth)
-            captureWidth = maxW
-            captureHeight = Int(Double(maxW) * aspectRatio)
+            logger.info("Capture: \(captureWidth)x\(captureHeight) (full native)")
+        } else if effectiveMaxWidth > logicalWidth {
+            // Use native but scale to maxWidth
+            let aspectRatio = Double(nativeHeight) / Double(nativeWidth)
+            captureWidth = effectiveMaxWidth
+            captureHeight = Int(Double(effectiveMaxWidth) * aspectRatio)
             // Ensure dimensions are even (required for H.264)
             captureWidth = (captureWidth / 2) * 2
             captureHeight = (captureHeight / 2) * 2
-            logger.info("Scaled to \(captureWidth)x\(captureHeight) (maxWidth: \(maxW))")
+            logger.info("Capture: \(captureWidth)x\(captureHeight) (scaled from native)")
+        } else if effectiveMaxWidth >= logicalWidth {
+            // Use logical resolution
+            captureWidth = logicalWidth
+            captureHeight = logicalHeight
+            logger.info("Capture: \(captureWidth)x\(captureHeight) (logical)")
+        } else {
+            // Scale down from logical
+            let aspectRatio = Double(logicalHeight) / Double(logicalWidth)
+            captureWidth = effectiveMaxWidth
+            captureHeight = Int(Double(effectiveMaxWidth) * aspectRatio)
+            captureWidth = (captureWidth / 2) * 2
+            captureHeight = (captureHeight / 2) * 2
+            logger.info("Capture: \(captureWidth)x\(captureHeight) (scaled from logical)")
         }
         
         // Store initial resolution

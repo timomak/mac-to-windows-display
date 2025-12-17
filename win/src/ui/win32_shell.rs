@@ -6,27 +6,52 @@ use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use windows::core::w;
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{GetLastError, HWND, LPARAM, LRESULT, WPARAM};
+use windows::core::{w, PCWSTR};
+use windows::Win32::Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM, COLORREF};
+use windows::Win32::Graphics::Gdi::{
+    BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, EndPaint, FillRect,
+    GetStockObject, InvalidateRect, LineTo, MoveToEx, RoundRect, SelectObject, SetBkMode,
+    SetTextColor, TextOutW, HBRUSH, HGDIOBJ, HPEN, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
+    WHITE_BRUSH, DrawTextW, DT_CENTER, DT_VCENTER, DT_SINGLELINE,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, LoadCursorW,
-    PostMessageW, PostQuitMessage, RegisterClassW, SetWindowTextW, ShowWindow, TranslateMessage,
-    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, IDC_ARROW, MSG, SW_SHOW, WM_APP,
-    WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WNDCLASSW, WS_CHILD, WS_OVERLAPPEDWINDOW,
-    WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW,
+    LoadCursorW, PostMessageW, PostQuitMessage, RegisterClassW, SetWindowTextW, ShowWindow,
+    TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, IDC_ARROW,
+    MSG, SW_SHOW, WM_APP, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_PAINT,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WNDCLASSW, WS_POPUP, WS_VISIBLE, WINDOW_EX_STYLE,
+    WS_EX_LAYERED, WS_MINIMIZEBOX, WS_CAPTION, WS_SYSMENU, WS_OVERLAPPEDWINDOW,
 };
 
 const ID_BTN_START: usize = 1001;
 const ID_BTN_STOP: usize = 1002;
 const ID_BTN_FULLSCREEN: usize = 1003;
-const ID_LBL_STATUS: usize = 2001;
-const ID_LBL_STATS: usize = 2002;
 
 const WM_UI_UPDATE: u32 = WM_APP + 1;
 
 static UI_CLASS_REGISTERED: AtomicBool = AtomicBool::new(false);
+
+// Colors matching Swift app's dark theme
+const COLOR_BG_DARK: u32 = 0x0D1117;      // Main background
+const COLOR_BG_MEDIUM: u32 = 0x161B22;    // Card background
+const COLOR_ACCENT_BLUE: u32 = 0x58A6FF;  // Accent blue
+const COLOR_ACCENT_DARK_BLUE: u32 = 0x1F6FEB;
+const COLOR_GREEN: u32 = 0x3FB950;        // Start button
+const COLOR_GREEN_DARK: u32 = 0x238636;
+const COLOR_RED: u32 = 0xF85149;          // Stop button
+const COLOR_RED_DARK: u32 = 0xDA3633;
+const COLOR_TEXT_PRIMARY: u32 = 0xFFFFFF; // White text
+const COLOR_TEXT_SECONDARY: u32 = 0x8B949E; // Muted text
+const COLOR_BORDER: u32 = 0x30363D;       // Card borders
+
+// Convert RGB to Windows COLORREF (BGR format)
+fn rgb_to_colorref(rgb: u32) -> COLORREF {
+    let r = ((rgb >> 16) & 0xFF) as u8;
+    let g = ((rgb >> 8) & 0xFF) as u8;
+    let b = (rgb & 0xFF) as u8;
+    COLORREF((b as u32) << 16 | (g as u32) << 8 | r as u32)
+}
 
 #[derive(Debug, Default)]
 struct UiModel {
@@ -36,22 +61,83 @@ struct UiModel {
     fullscreen: bool,
 }
 
+struct ButtonRect {
+    rect: RECT,
+    id: usize,
+    hover: bool,
+    pressed: bool,
+}
+
 struct AppState {
-    _hwnd: HWND,
-    status_hwnd: HWND,
-    stats_hwnd: HWND,
-    fullscreen_btn_hwnd: HWND,
+    hwnd: HWND,
     child: Option<Child>,
     model: Arc<Mutex<UiModel>>,
+    buttons: Vec<ButtonRect>,
+    font_title: HGDIOBJ,
+    font_normal: HGDIOBJ,
+    font_mono: HGDIOBJ,
+}
+
+impl AppState {
+    fn new(hwnd: HWND) -> Self {
+        unsafe {
+            // Create fonts
+            let font_title = CreateFontW(
+                22, 0, 0, 0, 600, 0, 0, 0, 0, 0, 0, 4, 0,
+                w!("Segoe UI"),
+            );
+            let font_normal = CreateFontW(
+                14, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 4, 0,
+                w!("Segoe UI"),
+            );
+            let font_mono = CreateFontW(
+                12, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 4, 0,
+                w!("Consolas"),
+            );
+
+            Self {
+                hwnd,
+                child: None,
+                model: Arc::new(Mutex::new(UiModel {
+                    process_status: "Stopped".to_string(),
+                    connection_status: "Disconnected".to_string(),
+                    stats_line: "—".to_string(),
+                    fullscreen: false,
+                })),
+                buttons: vec![
+                    ButtonRect {
+                        rect: RECT { left: 24, top: 340, right: 180, bottom: 385 },
+                        id: ID_BTN_START,
+                        hover: false,
+                        pressed: false,
+                    },
+                    ButtonRect {
+                        rect: RECT { left: 192, top: 340, right: 348, bottom: 385 },
+                        id: ID_BTN_STOP,
+                        hover: false,
+                        pressed: false,
+                    },
+                    ButtonRect {
+                        rect: RECT { left: 24, top: 395, right: 348, bottom: 440 },
+                        id: ID_BTN_FULLSCREEN,
+                        hover: false,
+                        pressed: false,
+                    },
+                ],
+                font_title: HGDIOBJ(font_title.0 as *mut _),
+                font_normal: HGDIOBJ(font_normal.0 as *mut _),
+                font_mono: HGDIOBJ(font_mono.0 as *mut _),
+            }
+        }
+    }
 }
 
 pub fn run() -> anyhow::Result<()> {
     unsafe {
         let hinstance = GetModuleHandleW(None)?;
 
-        // Register class once (defensive in case we ever re-enter run()).
         if !UI_CLASS_REGISTERED.swap(true, Ordering::SeqCst) {
-            let class_name = w!("ThunderReceiverUiWindow");
+            let class_name = w!("ThunderMirrorUI");
             let wc = WNDCLASSW {
                 style: CS_HREDRAW | CS_VREDRAW,
                 lpfnWndProc: Some(wndproc),
@@ -71,21 +157,21 @@ pub fn run() -> anyhow::Result<()> {
         }
 
         let hwnd = CreateWindowExW(
-            Default::default(),
-            w!("ThunderReceiverUiWindow"),
-            w!("ThunderMirror - Windows Viewer UI"),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WINDOW_EX_STYLE::default(),
+            w!("ThunderMirrorUI"),
+            w!("ThunderMirror"),
+            WS_OVERLAPPEDWINDOW & !WS_MAXIMIZEBOX,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            520,
-            180,
+            390,
+            500,
             None,
             None,
             hinstance,
             None,
         );
 
-        if hwnd.0 == 0 {
+        if hwnd.0.is_null() {
             return Err(anyhow::anyhow!(
                 "CreateWindowExW failed: {:?}",
                 GetLastError()
@@ -104,198 +190,65 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+const WS_MAXIMIZEBOX: windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE = 
+    windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(0x00010000);
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CREATE => {
-            let cs = lparam.0 as *const CREATESTRUCTW;
-            if !cs.is_null() {
-                let hinstance = GetModuleHandleW(None).unwrap_or_default();
-                // Create child controls.
-                let status_hwnd = CreateWindowExW(
-                    Default::default(),
-                    w!("STATIC"),
-                    w!("Status: Stopped"),
-                    WS_CHILD | WS_VISIBLE,
-                    20,
-                    20,
-                    470,
-                    24,
-                    hwnd,
-                    HMENU(ID_LBL_STATUS as isize),
-                    hinstance,
-                    None,
-                );
-
-                let stats_hwnd = CreateWindowExW(
-                    Default::default(),
-                    w!("STATIC"),
-                    w!("Stats: (none)"),
-                    WS_CHILD | WS_VISIBLE,
-                    20,
-                    45,
-                    470,
-                    24,
-                    hwnd,
-                    HMENU(ID_LBL_STATS as isize),
-                    hinstance,
-                    None,
-                );
-
-                let _start_hwnd = CreateWindowExW(
-                    Default::default(),
-                    w!("BUTTON"),
-                    w!("Start"),
-                    WS_CHILD | WS_VISIBLE,
-                    20,
-                    70,
-                    120,
-                    32,
-                    hwnd,
-                    HMENU(ID_BTN_START as isize),
-                    hinstance,
-                    None,
-                );
-
-                let _stop_hwnd = CreateWindowExW(
-                    Default::default(),
-                    w!("BUTTON"),
-                    w!("Stop"),
-                    WS_CHILD | WS_VISIBLE,
-                    160,
-                    70,
-                    120,
-                    32,
-                    hwnd,
-                    HMENU(ID_BTN_STOP as isize),
-                    hinstance,
-                    None,
-                );
-
-                let fullscreen_btn_hwnd = CreateWindowExW(
-                    Default::default(),
-                    w!("BUTTON"),
-                    w!("Fullscreen: Off"),
-                    WS_CHILD | WS_VISIBLE,
-                    300,
-                    70,
-                    190,
-                    32,
-                    hwnd,
-                    HMENU(ID_BTN_FULLSCREEN as isize),
-                    hinstance,
-                    None,
-                );
-
-                let model = Arc::new(Mutex::new(UiModel {
-                    process_status: "Stopped".to_string(),
-                    connection_status: "Disconnected".to_string(),
-                    stats_line: "(none)".to_string(),
-                    fullscreen: false,
-                }));
-
-                let state = Box::new(AppState {
-                    _hwnd: hwnd,
-                    status_hwnd,
-                    stats_hwnd,
-                    fullscreen_btn_hwnd,
-                    child: None,
-                    model,
-                });
-
-                // Store pointer in window user data.
-                windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
-                    hwnd,
-                    windows::Win32::UI::WindowsAndMessaging::GWLP_USERDATA,
-                    Box::into_raw(state) as isize,
-                );
+            let state = Box::new(AppState::new(hwnd));
+            windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
+                hwnd,
+                windows::Win32::UI::WindowsAndMessaging::GWLP_USERDATA,
+                Box::into_raw(state) as isize,
+            );
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => {
+            // We handle our own background
+            LRESULT(1)
+        }
+        WM_PAINT => {
+            paint_window(hwnd);
+            LRESULT(0)
+        }
+        WM_LBUTTONDOWN => {
+            let x = (lparam.0 & 0xFFFF) as i32;
+            let y = ((lparam.0 >> 16) & 0xFFFF) as i32;
+            
+            if let Some(state) = get_state(hwnd) {
+                for btn in &mut state.buttons {
+                    if point_in_rect(x, y, &btn.rect) {
+                        btn.pressed = true;
+                    }
+                }
+                let _ = InvalidateRect(hwnd, None, false);
             }
             LRESULT(0)
         }
-        WM_COMMAND => {
-            let id = (wparam.0 & 0xffff) as usize;
-            match id {
-                ID_BTN_START => {
-                    if let Some(state) = get_state(hwnd) {
-                        if state.child.is_some() {
-                            set_status(state.status_hwnd, "Status: Already running");
-                        } else {
-                            let fullscreen =
-                                state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
-                            match spawn_receiver_child(hwnd, fullscreen, state.model.clone()) {
-                                Ok(child) => {
-                                    state.child = Some(child);
-                                    if let Ok(mut m) = state.model.lock() {
-                                        m.process_status = "Running".to_string();
-                                    }
-                                    update_labels(state);
-                                }
-                                Err(e) => {
-                                    set_status(
-                                        state.status_hwnd,
-                                        &format!("Status: Start failed: {e}"),
-                                    );
-                                }
-                            }
-                        }
+        WM_LBUTTONUP => {
+            let x = (lparam.0 & 0xFFFF) as i32;
+            let y = ((lparam.0 >> 16) & 0xFFFF) as i32;
+            
+            if let Some(state) = get_state(hwnd) {
+                let mut clicked_id = None;
+                for btn in &mut state.buttons {
+                    if btn.pressed && point_in_rect(x, y, &btn.rect) {
+                        clicked_id = Some(btn.id);
                     }
-                    LRESULT(0)
+                    btn.pressed = false;
                 }
-                ID_BTN_STOP => {
-                    if let Some(state) = get_state(hwnd) {
-                        stop_child(state);
-                        if let Ok(mut m) = state.model.lock() {
-                            m.process_status = "Stopped".to_string();
-                            m.connection_status = "Disconnected".to_string();
-                        }
-                        update_labels(state);
-                    }
-                    LRESULT(0)
+                
+                let _ = InvalidateRect(hwnd, None, false);
+                
+                if let Some(id) = clicked_id {
+                    handle_button_click(hwnd, state, id);
                 }
-                ID_BTN_FULLSCREEN => {
-                    if let Some(state) = get_state(hwnd) {
-                        // Toggle setting.
-                        if let Ok(mut m) = state.model.lock() {
-                            m.fullscreen = !m.fullscreen;
-                        }
-                        update_fullscreen_button(state);
-
-                        // If running, restart to apply.
-                        if state.child.is_some() {
-                            stop_child(state);
-                            if let Ok(mut m) = state.model.lock() {
-                                m.process_status = "Restarting".to_string();
-                                m.connection_status = "Disconnected".to_string();
-                            }
-                            update_labels(state);
-
-                            let fullscreen =
-                                state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
-                            match spawn_receiver_child(hwnd, fullscreen, state.model.clone()) {
-                                Ok(child) => {
-                                    state.child = Some(child);
-                                    if let Ok(mut m) = state.model.lock() {
-                                        m.process_status = "Running".to_string();
-                                    }
-                                    update_labels(state);
-                                }
-                                Err(e) => {
-                                    if let Ok(mut m) = state.model.lock() {
-                                        m.process_status = format!("Start failed: {e}");
-                                    }
-                                    update_labels(state);
-                                }
-                            }
-                        }
-                    }
-                    LRESULT(0)
-                }
-                _ => DefWindowProcW(hwnd, msg, wparam, lparam),
             }
+            LRESULT(0)
         }
         WM_UI_UPDATE => {
-            if let Some(state) = get_state(hwnd) {
-                update_labels(state);
-            }
+            let _ = InvalidateRect(hwnd, None, false);
             LRESULT(0)
         }
         WM_CLOSE => {
@@ -307,7 +260,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 stop_child(state);
             }
 
-            // Free state allocation.
             let ptr = windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(
                 hwnd,
                 windows::Win32::UI::WindowsAndMessaging::GWLP_USERDATA,
@@ -326,6 +278,283 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
+}
+
+fn point_in_rect(x: i32, y: i32, rect: &RECT) -> bool {
+    x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+}
+
+unsafe fn handle_button_click(hwnd: HWND, state: &mut AppState, button_id: usize) {
+    match button_id {
+        ID_BTN_START => {
+            if state.child.is_some() {
+                return;
+            }
+            let fullscreen = state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
+            match spawn_receiver_child(hwnd, fullscreen, state.model.clone()) {
+                Ok(child) => {
+                    state.child = Some(child);
+                    if let Ok(mut m) = state.model.lock() {
+                        m.process_status = "Running".to_string();
+                    }
+                }
+                Err(e) => {
+                    if let Ok(mut m) = state.model.lock() {
+                        m.process_status = format!("Error: {}", e);
+                    }
+                }
+            }
+            let _ = InvalidateRect(hwnd, None, false);
+        }
+        ID_BTN_STOP => {
+            stop_child(state);
+            if let Ok(mut m) = state.model.lock() {
+                m.process_status = "Stopped".to_string();
+                m.connection_status = "Disconnected".to_string();
+            }
+            let _ = InvalidateRect(hwnd, None, false);
+        }
+        ID_BTN_FULLSCREEN => {
+            if let Ok(mut m) = state.model.lock() {
+                m.fullscreen = !m.fullscreen;
+            }
+            
+            // Restart if running
+            if state.child.is_some() {
+                stop_child(state);
+                if let Ok(mut m) = state.model.lock() {
+                    m.process_status = "Restarting...".to_string();
+                    m.connection_status = "Disconnected".to_string();
+                }
+                let _ = InvalidateRect(hwnd, None, false);
+
+                let fullscreen = state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
+                match spawn_receiver_child(hwnd, fullscreen, state.model.clone()) {
+                    Ok(child) => {
+                        state.child = Some(child);
+                        if let Ok(mut m) = state.model.lock() {
+                            m.process_status = "Running".to_string();
+                        }
+                    }
+                    Err(e) => {
+                        if let Ok(mut m) = state.model.lock() {
+                            m.process_status = format!("Error: {}", e);
+                        }
+                    }
+                }
+            }
+            let _ = InvalidateRect(hwnd, None, false);
+        }
+        _ => {}
+    }
+}
+
+unsafe fn paint_window(hwnd: HWND) {
+    let mut ps = PAINTSTRUCT::default();
+    let hdc = BeginPaint(hwnd, &mut ps);
+    
+    let mut client_rect = RECT::default();
+    let _ = GetClientRect(hwnd, &mut client_rect);
+    
+    // Fill background with dark gradient color
+    let bg_brush = CreateSolidBrush(rgb_to_colorref(COLOR_BG_DARK));
+    FillRect(hdc, &client_rect, bg_brush);
+    let _ = DeleteObject(bg_brush);
+    
+    let state = match get_state(hwnd) {
+        Some(s) => s,
+        None => {
+            let _ = EndPaint(hwnd, &ps);
+            return;
+        }
+    };
+    
+    let _ = SetBkMode(hdc, TRANSPARENT);
+    
+    // Draw header
+    let old_font = SelectObject(hdc, state.font_title);
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_PRIMARY));
+    draw_text_utf16(hdc, "⚡ ThunderMirror", 24, 24);
+    
+    SelectObject(hdc, state.font_mono);
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_SECONDARY));
+    draw_text_utf16(hdc, "v0.3.0", 24, 52);
+    
+    // Draw status badge
+    let (status_text, status_color) = {
+        let model = state.model.lock().unwrap();
+        let color = match model.connection_status.as_str() {
+            "Connected" => COLOR_GREEN,
+            "Listening" => COLOR_ACCENT_BLUE,
+            "Error" => COLOR_RED,
+            _ => COLOR_TEXT_SECONDARY,
+        };
+        (model.connection_status.clone(), color)
+    };
+    
+    // Status badge background
+    let badge_rect = RECT { left: 260, top: 24, right: 355, bottom: 45 };
+    let badge_brush = CreateSolidBrush(rgb_to_colorref(0x21262D));
+    fill_rounded_rect(hdc, &badge_rect, badge_brush, 10);
+    let _ = DeleteObject(badge_brush);
+    
+    // Status dot
+    let dot_brush = CreateSolidBrush(rgb_to_colorref(status_color));
+    let dot_rect = RECT { left: 270, top: 31, right: 278, bottom: 39 };
+    fill_rounded_rect(hdc, &dot_rect, dot_brush, 4);
+    let _ = DeleteObject(dot_brush);
+    
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_SECONDARY));
+    draw_text_utf16(hdc, &status_text, 284, 29);
+    
+    // Draw separator line
+    let pen = CreatePen(PS_SOLID, 1, rgb_to_colorref(COLOR_BORDER));
+    let old_pen = SelectObject(hdc, pen);
+    MoveToEx(hdc, 24, 75, None);
+    LineTo(hdc, client_rect.right - 24, 75);
+    SelectObject(hdc, old_pen);
+    let _ = DeleteObject(pen);
+    
+    // Connection Card
+    draw_card(hdc, state, "CONNECTION", 24, 90, 342, 80);
+    SelectObject(hdc, state.font_normal);
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_SECONDARY));
+    draw_text_utf16(hdc, "Listening on", 40, 125);
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_PRIMARY));
+    SelectObject(hdc, state.font_mono);
+    draw_text_utf16(hdc, "0.0.0.0:9999", 150, 125);
+    
+    // Status Card
+    draw_card(hdc, state, "STATUS", 24, 180, 342, 80);
+    SelectObject(hdc, state.font_normal);
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_SECONDARY));
+    draw_text_utf16(hdc, "Process", 40, 215);
+    let process_status = state.model.lock().map(|m| m.process_status.clone()).unwrap_or_default();
+    let process_color = if process_status == "Running" { COLOR_GREEN } else { COLOR_TEXT_PRIMARY };
+    SetTextColor(hdc, rgb_to_colorref(process_color));
+    draw_text_utf16(hdc, &process_status, 150, 215);
+    
+    // Stats Card
+    draw_card(hdc, state, "STATISTICS", 24, 270, 342, 55);
+    SelectObject(hdc, state.font_mono);
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_SECONDARY));
+    let stats = state.model.lock().map(|m| m.stats_line.clone()).unwrap_or_else(|_| "—".to_string());
+    draw_text_utf16(hdc, &stats, 40, 300);
+    
+    // Draw buttons
+    let is_running = state.child.is_some();
+    let is_fullscreen = state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
+    
+    // Start button
+    draw_button(
+        hdc, 
+        &state.buttons[0].rect, 
+        "▶  Start", 
+        if is_running { COLOR_BORDER } else { COLOR_GREEN },
+        if is_running { COLOR_BORDER } else { COLOR_GREEN_DARK },
+        state.buttons[0].pressed,
+        state.font_normal,
+    );
+    
+    // Stop button
+    draw_button(
+        hdc, 
+        &state.buttons[1].rect, 
+        "■  Stop", 
+        if !is_running { COLOR_BORDER } else { COLOR_RED },
+        if !is_running { COLOR_BORDER } else { COLOR_RED_DARK },
+        state.buttons[1].pressed,
+        state.font_normal,
+    );
+    
+    // Fullscreen toggle
+    let fs_text = if is_fullscreen { "Fullscreen: ON" } else { "Fullscreen: OFF" };
+    let fs_color = if is_fullscreen { COLOR_ACCENT_BLUE } else { COLOR_BORDER };
+    draw_button(
+        hdc,
+        &state.buttons[2].rect,
+        fs_text,
+        fs_color,
+        if is_fullscreen { COLOR_ACCENT_DARK_BLUE } else { 0x21262D },
+        state.buttons[2].pressed,
+        state.font_normal,
+    );
+    
+    SelectObject(hdc, old_font);
+    let _ = EndPaint(hwnd, &ps);
+}
+
+unsafe fn draw_card(hdc: windows::Win32::Graphics::Gdi::HDC, state: &AppState, title: &str, x: i32, y: i32, w: i32, h: i32) {
+    let rect = RECT { left: x, top: y, right: x + w, bottom: y + h };
+    
+    // Card background
+    let bg_brush = CreateSolidBrush(rgb_to_colorref(COLOR_BG_MEDIUM));
+    fill_rounded_rect(hdc, &rect, bg_brush, 12);
+    let _ = DeleteObject(bg_brush);
+    
+    // Card border
+    let border_pen = CreatePen(PS_SOLID, 1, rgb_to_colorref(COLOR_BORDER));
+    let old_pen = SelectObject(hdc, border_pen);
+    let null_brush = GetStockObject(windows::Win32::Graphics::Gdi::NULL_BRUSH);
+    let old_brush = SelectObject(hdc, null_brush);
+    RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, 12, 12);
+    SelectObject(hdc, old_brush);
+    SelectObject(hdc, old_pen);
+    let _ = DeleteObject(border_pen);
+    
+    // Card title
+    SelectObject(hdc, state.font_mono);
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_SECONDARY));
+    draw_text_utf16(hdc, title, x + 16, y + 10);
+}
+
+unsafe fn draw_button(
+    hdc: windows::Win32::Graphics::Gdi::HDC,
+    rect: &RECT,
+    text: &str,
+    color: u32,
+    _color_dark: u32,
+    pressed: bool,
+    font: HGDIOBJ,
+) {
+    let adj_rect = if pressed {
+        RECT {
+            left: rect.left + 1,
+            top: rect.top + 1,
+            right: rect.right + 1,
+            bottom: rect.bottom + 1,
+        }
+    } else {
+        *rect
+    };
+    
+    // Button background
+    let bg_brush = CreateSolidBrush(rgb_to_colorref(color));
+    fill_rounded_rect(hdc, &adj_rect, bg_brush, 10);
+    let _ = DeleteObject(bg_brush);
+    
+    // Button text
+    SelectObject(hdc, font);
+    SetTextColor(hdc, rgb_to_colorref(COLOR_TEXT_PRIMARY));
+    
+    let mut text_rect = adj_rect;
+    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    DrawTextW(hdc, &mut wide[..wide.len()-1].to_vec(), &mut text_rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+unsafe fn fill_rounded_rect(hdc: windows::Win32::Graphics::Gdi::HDC, rect: &RECT, brush: HBRUSH, radius: i32) {
+    let old_brush = SelectObject(hdc, brush);
+    let null_pen = CreatePen(PS_SOLID, 0, rgb_to_colorref(0));
+    let old_pen = SelectObject(hdc, null_pen);
+    RoundRect(hdc, rect.left, rect.top, rect.right, rect.bottom, radius, radius);
+    SelectObject(hdc, old_pen);
+    SelectObject(hdc, old_brush);
+    let _ = DeleteObject(null_pen);
+}
+
+unsafe fn draw_text_utf16(hdc: windows::Win32::Graphics::Gdi::HDC, text: &str, x: i32, y: i32) {
+    let wide: Vec<u16> = text.encode_utf16().collect();
+    TextOutW(hdc, x, y, &wide);
 }
 
 fn get_state(hwnd: HWND) -> Option<&'static mut AppState> {
@@ -349,54 +578,6 @@ fn stop_child(state: &mut AppState) {
     }
 }
 
-fn set_status(hwnd: HWND, text: &str) {
-    unsafe {
-        let wide = to_wide_null(text);
-        let _ = SetWindowTextW(hwnd, PCWSTR(wide.as_ptr()));
-    }
-}
-
-fn update_fullscreen_button(state: &AppState) {
-    let fullscreen = state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
-    let label = if fullscreen {
-        "Fullscreen: On"
-    } else {
-        "Fullscreen: Off"
-    };
-    set_status(state.fullscreen_btn_hwnd, label);
-}
-
-fn update_labels(state: &mut AppState) {
-    // Avoid stale "already running" when the child exited on its own.
-    if let Some(child) = state.child.as_mut() {
-        if let Ok(Some(_status)) = child.try_wait() {
-            state.child = None;
-            if let Ok(mut m) = state.model.lock() {
-                m.process_status = "Stopped".to_string();
-                m.connection_status = "Disconnected".to_string();
-            }
-        }
-    }
-
-    let (proc_status, conn_status, stats_line) = state
-        .model
-        .lock()
-        .map(|m| {
-            (
-                m.process_status.clone(),
-                m.connection_status.clone(),
-                m.stats_line.clone(),
-            )
-        })
-        .unwrap_or_else(|_| ("?".to_string(), "?".to_string(), "(none)".to_string()));
-
-    set_status(
-        state.status_hwnd,
-        &format!("Status: {proc_status} | Connection: {conn_status}"),
-    );
-    set_status(state.stats_hwnd, &format!("Stats: {stats_line}"));
-}
-
 fn spawn_receiver_child(
     hwnd: HWND,
     fullscreen: bool,
@@ -407,9 +588,6 @@ fn spawn_receiver_child(
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Failed to determine UI exe directory"))?;
 
-    // In dev builds, this should sit alongside thunder_receiver.exe:
-    // target\debug\thunder_receiver_ui.exe
-    // target\debug\thunder_receiver.exe
     let receiver_exe = dir.join("thunder_receiver.exe");
     if !receiver_exe.exists() {
         return Err(anyhow::anyhow!(
@@ -484,12 +662,4 @@ fn handle_child_log_line(hwnd: HWND, model: &Arc<Mutex<UiModel>>, line: &str) {
             let _ = PostMessageW(hwnd, WM_UI_UPDATE, WPARAM(0), LPARAM(0));
         }
     }
-}
-
-fn to_wide_null(s: &str) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-    std::ffi::OsStr::new(s)
-        .encode_wide()
-        .chain(Some(0))
-        .collect()
 }
