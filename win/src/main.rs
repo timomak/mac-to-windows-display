@@ -19,6 +19,8 @@ use tracing_subscriber::FmtSubscriber;
 
 /// Frame header size in bytes
 const FRAME_HEADER_SIZE: usize = 26;
+/// Maximum payload size we will accept (matches shared protocol's intent; keep conservative).
+const MAX_FRAME_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
 
 /// Frame types from protocol
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,82 +286,219 @@ async fn handle_connection(
     conn: quinn::Connection,
     tx: mpsc::Sender<FrameData>,
 ) -> anyhow::Result<()> {
-    // Accept unidirectional streams
-    loop {
-        match conn.accept_uni().await {
-            Ok(mut recv) => {
-                // Read all data from stream
-                let data = recv.read_to_end(16 * 1024 * 1024).await?;
+    // macOS uses Network.framework's QUIC via NWConnection, which commonly maps to a
+    // client-initiated bidirectional stream rather than per-frame unidirectional streams.
+    //
+    // To maximize interop, accept BOTH uni and bi streams. For bi streams, parse a continuous
+    // byte stream containing repeated (header + payload) frames.
 
-                if data.len() < FRAME_HEADER_SIZE {
-                    warn!("Received data too small for header");
-                    continue;
-                }
+    let conn_bi = conn.clone();
+    let conn_uni = conn;
 
-                // Parse frame header (big-endian)
-                let mut bytes = Bytes::from(data);
-                let _version = bytes.get_u8();
-                let frame_type_raw = bytes.get_u8();
-                let sequence = bytes.get_u64();
-                let _timestamp_us = bytes.get_u64();
-                let width = bytes.get_u16();
-                let height = bytes.get_u16();
-                let payload_size = bytes.get_u32() as usize;
-
-                // Parse frame type
-                let frame_type = match FrameType::try_from(frame_type_raw) {
-                    Ok(ft) => ft,
-                    Err(e) => {
-                        warn!("Invalid frame type: {}", e);
-                        continue;
+    let tx_bi = tx.clone();
+    let bi_task = tokio::spawn(async move {
+        loop {
+            match conn_bi.accept_bi().await {
+                Ok((_send, mut recv)) => {
+                    info!("Accepted bidirectional stream; starting frame parser");
+                    if let Err(e) = handle_frame_byte_stream(&mut recv, tx_bi.clone()).await {
+                        warn!("Bidirectional stream handler error: {}", e);
                     }
-                };
-
-                if bytes.remaining() < payload_size {
-                    warn!(
-                        "Payload size mismatch: expected {}, got {}",
-                        payload_size,
-                        bytes.remaining()
-                    );
-                    continue;
                 }
-
-                let rgba_data = bytes.slice(..payload_size).to_vec();
-
-                debug!(
-                    "Received frame: seq={}, type={:?}, {}x{}, {} bytes",
-                    sequence,
-                    frame_type,
-                    width,
-                    height,
-                    payload_size
-                );
-
-                // Send to renderer
-                if tx
-                    .send(FrameData {
-                        width,
-                        height,
-                        rgba_data,
-                        sequence,
-                        frame_type,
-                    })
-                    .await
-                    .is_err()
-                {
-                    warn!("Frame channel closed");
+                Err(e) => {
+                    info!("Connection closed (bi accept): {}", e);
                     break;
                 }
             }
-            Err(e) => {
-                // Connection closed
-                info!("Connection closed: {}", e);
-                break;
+        }
+    });
+
+    let uni_task = tokio::spawn(async move {
+        loop {
+            match conn_uni.accept_uni().await {
+                Ok(mut recv) => {
+                    // Legacy path: one frame per unidirectional stream.
+                    let data = match recv.read_to_end(MAX_FRAME_PAYLOAD_SIZE + FRAME_HEADER_SIZE).await {
+                        Ok(d) => d,
+                        Err(e) => {
+                            warn!("Failed reading uni stream: {}", e);
+                            continue;
+                        }
+                    };
+
+                    if data.len() < FRAME_HEADER_SIZE {
+                        warn!("Received uni data too small for header");
+                        continue;
+                    }
+
+                    if let Err(e) = handle_single_frame_datagramlike(data, tx.clone()).await {
+                        warn!("Failed to parse uni frame: {}", e);
+                    }
+                }
+                Err(e) => {
+                    info!("Connection closed (uni accept): {}", e);
+                    break;
+                }
             }
         }
+    });
+
+    // Wait for either accept loop to finish (connection closed).
+    let _ = tokio::join!(bi_task, uni_task);
+    Ok(())
+}
+
+async fn handle_single_frame_datagramlike(data: Vec<u8>, tx: mpsc::Sender<FrameData>) -> anyhow::Result<()> {
+    // Parse frame header (big-endian)
+    let mut bytes = Bytes::from(data);
+    let _version = bytes.get_u8();
+    let frame_type_raw = bytes.get_u8();
+    let sequence = bytes.get_u64();
+    let _timestamp_us = bytes.get_u64();
+    let width = bytes.get_u16();
+    let height = bytes.get_u16();
+    let payload_size = bytes.get_u32() as usize;
+
+    if payload_size > MAX_FRAME_PAYLOAD_SIZE {
+        anyhow::bail!("Payload too large: {} bytes", payload_size);
     }
 
+    // Parse frame type
+    let frame_type = FrameType::try_from(frame_type_raw)?;
+
+    if bytes.remaining() < payload_size {
+        anyhow::bail!(
+            "Payload size mismatch: expected {}, got {}",
+            payload_size,
+            bytes.remaining()
+        );
+    }
+
+    let rgba_data = bytes.slice(..payload_size).to_vec();
+
+    debug!(
+        "Received frame (uni): seq={}, type={:?}, {}x{}, {} bytes",
+        sequence,
+        frame_type,
+        width,
+        height,
+        payload_size
+    );
+
+    tx.send(FrameData {
+        width,
+        height,
+        rgba_data,
+        sequence,
+        frame_type,
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Frame channel closed"))?;
+
     Ok(())
+}
+
+async fn handle_frame_byte_stream(
+    recv: &mut quinn::RecvStream,
+    tx: mpsc::Sender<FrameData>,
+) -> anyhow::Result<()> {
+    use bytes::BytesMut;
+
+    let mut buf = BytesMut::with_capacity(256 * 1024);
+
+    loop {
+        // Ensure we have enough to parse at least a header.
+        while buf.len() < FRAME_HEADER_SIZE {
+            match recv.read_chunk(64 * 1024, true).await? {
+                Some(chunk) => buf.extend_from_slice(&chunk.bytes),
+                None => return Ok(()), // EOF
+            }
+        }
+
+        // Peek header without consuming until payload is present.
+        let mut header_bytes = Bytes::copy_from_slice(&buf[..FRAME_HEADER_SIZE]);
+        let version = header_bytes.get_u8();
+        let frame_type_raw = header_bytes.get_u8();
+        let sequence = header_bytes.get_u64();
+        let _timestamp_us = header_bytes.get_u64();
+        let _width = header_bytes.get_u16();
+        let _height = header_bytes.get_u16();
+        let payload_size = header_bytes.get_u32() as usize;
+
+        if version != 1 {
+            anyhow::bail!("Unsupported protocol version: {}", version);
+        }
+
+        if payload_size > MAX_FRAME_PAYLOAD_SIZE {
+            anyhow::bail!("Payload too large: {} bytes", payload_size);
+        }
+
+        let total_needed = FRAME_HEADER_SIZE + payload_size;
+
+        // Read until full frame present.
+        while buf.len() < total_needed {
+            match recv.read_chunk(256 * 1024, true).await? {
+                Some(chunk) => buf.extend_from_slice(&chunk.bytes),
+                None => return Ok(()), // EOF mid-frame; just stop
+            }
+        }
+
+        // Now we can consume this full frame from buf.
+        let mut frame_bytes = buf.split_to(total_needed).freeze();
+        let _version2 = frame_bytes.get_u8();
+        let frame_type_raw2 = frame_bytes.get_u8();
+        let sequence2 = frame_bytes.get_u64();
+        let _timestamp_us2 = frame_bytes.get_u64();
+        let width2 = frame_bytes.get_u16();
+        let height2 = frame_bytes.get_u16();
+        let payload_size2 = frame_bytes.get_u32() as usize;
+
+        if payload_size2 != payload_size || frame_type_raw2 != frame_type_raw || sequence2 != sequence {
+            debug!("Frame header changed between peek/consume; continuing with consumed header");
+        }
+
+        let frame_type = match FrameType::try_from(frame_type_raw2) {
+            Ok(ft) => ft,
+            Err(e) => {
+                warn!("Invalid frame type in stream: {}", e);
+                continue;
+            }
+        };
+
+        if frame_bytes.remaining() < payload_size2 {
+            warn!(
+                "Stream payload size mismatch: expected {}, got {}",
+                payload_size2,
+                frame_bytes.remaining()
+            );
+            continue;
+        }
+
+        let rgba_data = frame_bytes.split_to(payload_size2).to_vec();
+
+        debug!(
+            "Received frame (bi): seq={}, type={:?}, {}x{}, {} bytes",
+            sequence2,
+            frame_type,
+            width2,
+            height2,
+            payload_size2
+        );
+
+        if tx
+            .send(FrameData {
+                width: width2,
+                height: height2,
+                rgba_data,
+                sequence: sequence2,
+                frame_type,
+            })
+            .await
+            .is_err()
+        {
+            return Ok(());
+        }
+    }
 }
 
 fn create_server_config() -> anyhow::Result<ServerConfig> {
