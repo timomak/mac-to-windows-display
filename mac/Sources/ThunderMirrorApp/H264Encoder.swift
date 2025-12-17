@@ -105,28 +105,19 @@ class H264Encoder {
             throw H264EncoderError.configurationFailed("ProfileLevel", status)
         }
         
-        // Set bitrate with generous limits to maintain quality
-        let bitrateNum = CFNumberCreate(kCFAllocatorDefault, .intType, &bitrate)
+        // Set a HIGH bitrate - we have Thunderbolt bandwidth, use it
+        // Multiply by 1.5 to ensure we always have headroom
+        var effectiveBitrate = Int32(Double(bitrate) * 1.5)
+        let bitrateNum = CFNumberCreate(kCFAllocatorDefault, .intType, &effectiveBitrate)
         status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrateNum)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("AverageBitRate", status)
         }
         
-        // Set data rate limits to prevent the encoder from dropping quality
-        // Allow 2x the average bitrate for 1 second bursts
-        let bytesPerSecond = Double(bitrate) / 8.0 * 2.0  // 2x average for headroom
-        let limits: [Double] = [bytesPerSecond, 1.0]
-        let limitsArray = limits as CFArray
-        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitsArray)
-        if status != noErr {
-            logger.debug("DataRateLimits not supported, using average bitrate only")
-        }
+        logger.info("Encoder bitrate set to \(effectiveBitrate / 1_000_000) Mbps (1.5x requested)")
         
-        // Enable constant bit rate mode for consistent quality
-        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ConstantBitRate, value: kCFBooleanTrue)
-        if status != noErr {
-            logger.debug("ConstantBitRate not supported, using default rate control")
-        }
+        // Do NOT set DataRateLimits - let the encoder use whatever it needs
+        // Do NOT set ConstantBitRate - it can cause quality issues on some encoders
         
         // Set expected frame rate
         let expectedFrameRate = CFNumberCreate(kCFAllocatorDefault, .intType, &fps)
@@ -135,14 +126,21 @@ class H264Encoder {
             throw H264EncoderError.configurationFailed("ExpectedFrameRate", status)
         }
         
-        // Shorter keyframe interval for better error recovery and quality consistency
-        // Every 30 frames (0.5 second at 60fps) - more keyframes = more consistent quality
-        var maxKeyFrameInterval: Int32 = 30
+        // Very frequent keyframes for consistent quality
+        // Every 15 frames (0.25 second at 60fps) - more keyframes = more consistent quality
+        // This uses more bandwidth but we have Thunderbolt
+        var maxKeyFrameInterval: Int32 = 15
         let maxKeyFrameIntervalNum = CFNumberCreate(kCFAllocatorDefault, .intType, &maxKeyFrameInterval)
         status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: maxKeyFrameIntervalNum)
         guard status == noErr else {
             throw H264EncoderError.configurationFailed("MaxKeyFrameInterval", status)
         }
+        
+        // Also set max keyframe interval duration to ensure keyframes happen
+        var keyFrameIntervalDuration: Float64 = 0.25  // 0.25 seconds
+        let keyFrameIntervalDurationNum = CFNumberCreate(kCFAllocatorDefault, .float64Type, &keyFrameIntervalDuration)
+        status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: keyFrameIntervalDurationNum)
+        // Not critical if this fails
         
         // Disable B-frames for lower latency
         status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)

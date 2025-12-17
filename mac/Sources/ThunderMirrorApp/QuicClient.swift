@@ -99,13 +99,28 @@ class QuicClient {
     ///   - data: Data to send
     ///   - completion: Called when send completes or fails
     func send(_ data: Data, completion: @escaping (Result<Void, Error>) -> Void) {
-        guard let connection = connection, isConnected else {
+        guard let connection = connection else {
             completion(.failure(NSError(domain: "QuicClient", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not connected"])))
             return
         }
         
-        connection.send(content: data, completion: .contentProcessed { error in
+        // Check connection state - if waiting or preparing, still try to send
+        // This helps during transient network issues
+        if !isConnected {
+            // Connection might be in process of recovery, fail fast but don't crash
+            completion(.failure(NSError(domain: "QuicClient", code: -3, userInfo: [NSLocalizedDescriptionKey: "Connection not ready"])))
+            return
+        }
+        
+        connection.send(content: data, completion: .contentProcessed { [weak self] error in
             if let error = error {
+                // Check if this is a transient error - posix 57 is "socket not connected"
+                // which can happen during flow control or brief network hiccups
+                let nsError = error as NSError
+                if nsError.domain == "NSPOSIXErrorDomain" && nsError.code == 57 {
+                    // Socket not connected - mark as temporarily failed
+                    self?.isConnected = false
+                }
                 completion(.failure(error))
             } else {
                 completion(.success(()))

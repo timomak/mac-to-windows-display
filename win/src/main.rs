@@ -254,7 +254,8 @@ fn main() -> anyhow::Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
 
     // Run QUIC server in background and receive frames
-    let (tx, mut rx) = mpsc::channel::<FrameData>(10);
+    // Larger buffer to handle frame bursts and prevent backpressure
+    let (tx, mut rx) = mpsc::channel::<FrameData>(60);
 
     let port = args.port;
     rt.spawn(async move {
@@ -739,9 +740,18 @@ fn create_server_config() -> anyhow::Result<ServerConfig> {
 
     let mut server_config = ServerConfig::with_crypto(Arc::new(rustls_config));
 
-    // Enable QUIC DATAGRAMS (needed for some client stacks) and keep defaults otherwise.
+    // Configure transport for high-bandwidth low-latency streaming
     let mut transport = quinn::TransportConfig::default();
     transport.datagram_receive_buffer_size(Some(16 * 1024 * 1024));
+    
+    // Increase stream receive window for high-bandwidth streaming
+    transport.receive_window((16 * 1024 * 1024).try_into().unwrap());
+    transport.stream_receive_window((8 * 1024 * 1024).try_into().unwrap());
+    
+    // Keep connection alive
+    transport.keep_alive_interval(Some(Duration::from_secs(5)));
+    transport.max_idle_timeout(Some(Duration::from_secs(60).try_into().unwrap()));
+    
     server_config.transport = Arc::new(transport);
 
     Ok(server_config)

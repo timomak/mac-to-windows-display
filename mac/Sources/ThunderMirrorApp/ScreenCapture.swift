@@ -55,41 +55,48 @@ class ScreenCapture: NSObject {
         let logicalWidth = display.width
         let logicalHeight = display.height
         
+        logger.info("Display info: native=\(nativeWidth)x\(nativeHeight), logical=\(logicalWidth)x\(logicalHeight), maxWidth=\(maxWidth ?? -1)")
+        
         var captureWidth: Int
         var captureHeight: Int
         
         // Determine target resolution based on maxWidth setting
-        // If maxWidth is set and larger than logical, use native and scale down
-        // If maxWidth is Native (9999) or larger than native, use full native
         let effectiveMaxWidth = maxWidth ?? 9999
         
-        if effectiveMaxWidth >= nativeWidth || effectiveMaxWidth >= 9999 {
-            // Use full native resolution
+        if effectiveMaxWidth >= 9999 {
+            // Native mode selected - use full native resolution
             captureWidth = nativeWidth
             captureHeight = nativeHeight
-            logger.info("Capture: \(captureWidth)x\(captureHeight) (full native)")
-        } else if effectiveMaxWidth > logicalWidth {
-            // Use native but scale to maxWidth
+            logger.info("Mode: NATIVE → \(captureWidth)x\(captureHeight)")
+        } else if effectiveMaxWidth >= 2560 {
+            // 2560 selected - use that width or native if smaller
+            captureWidth = min(effectiveMaxWidth, nativeWidth)
             let aspectRatio = Double(nativeHeight) / Double(nativeWidth)
-            captureWidth = effectiveMaxWidth
-            captureHeight = Int(Double(effectiveMaxWidth) * aspectRatio)
-            // Ensure dimensions are even (required for H.264)
+            captureHeight = Int(Double(captureWidth) * aspectRatio)
             captureWidth = (captureWidth / 2) * 2
             captureHeight = (captureHeight / 2) * 2
-            logger.info("Capture: \(captureWidth)x\(captureHeight) (scaled from native)")
-        } else if effectiveMaxWidth >= logicalWidth {
-            // Use logical resolution
+            logger.info("Mode: 2560 → \(captureWidth)x\(captureHeight)")
+        } else if effectiveMaxWidth >= 1920 {
+            // 1920 selected
+            captureWidth = 1920
+            let aspectRatio = Double(nativeHeight) / Double(nativeWidth)
+            captureHeight = Int(Double(1920) * aspectRatio)
+            captureWidth = (captureWidth / 2) * 2
+            captureHeight = (captureHeight / 2) * 2
+            logger.info("Mode: 1920 → \(captureWidth)x\(captureHeight)")
+        } else if effectiveMaxWidth >= 1280 {
+            // 1280 selected
+            captureWidth = 1280
+            let aspectRatio = Double(nativeHeight) / Double(nativeWidth)
+            captureHeight = Int(Double(1280) * aspectRatio)
+            captureWidth = (captureWidth / 2) * 2
+            captureHeight = (captureHeight / 2) * 2
+            logger.info("Mode: 1280 → \(captureWidth)x\(captureHeight)")
+        } else {
+            // Fallback to logical
             captureWidth = logicalWidth
             captureHeight = logicalHeight
-            logger.info("Capture: \(captureWidth)x\(captureHeight) (logical)")
-        } else {
-            // Scale down from logical
-            let aspectRatio = Double(logicalHeight) / Double(logicalWidth)
-            captureWidth = effectiveMaxWidth
-            captureHeight = Int(Double(effectiveMaxWidth) * aspectRatio)
-            captureWidth = (captureWidth / 2) * 2
-            captureHeight = (captureHeight / 2) * 2
-            logger.info("Capture: \(captureWidth)x\(captureHeight) (scaled from logical)")
+            logger.info("Mode: LOGICAL → \(captureWidth)x\(captureHeight)")
         }
         
         // Store initial resolution
@@ -103,9 +110,22 @@ class ScreenCapture: NSObject {
         config.width = captureWidth
         config.height = captureHeight
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60) // 60 fps
-        config.queueDepth = 3
+        config.queueDepth = 5  // Increased for smoother capture
         config.pixelFormat = kCVPixelFormatType_32BGRA // BGRA format (optimal for H.264)
         config.showsCursor = true
+        
+        // CRITICAL: Force the output to match our requested resolution
+        // Without scalesToFit, macOS may return logical (Retina-scaled) resolution
+        if #available(macOS 14.0, *) {
+            config.captureResolution = .best  // Use best quality capture
+        }
+        
+        // Set source rect to full display to ensure we capture everything
+        config.sourceRect = CGRect(x: 0, y: 0, width: display.width, height: display.height)
+        config.destinationRect = CGRect(x: 0, y: 0, width: captureWidth, height: captureHeight)
+        
+        // scalesToFit ensures output matches destinationRect exactly
+        config.scalesToFit = true
         
         // Create stream output handler
         streamOutput = StreamOutput()

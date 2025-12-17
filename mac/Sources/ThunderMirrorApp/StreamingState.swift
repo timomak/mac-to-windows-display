@@ -90,6 +90,10 @@ class StreamingState: ObservableObject {
     private var sequence: UInt64 = 0
     private var startTime = Date()
     
+    // Error tracking for resilience
+    private var consecutiveSendErrors: Int = 0
+    private static let maxConsecutiveErrors: Int = 30  // Allow ~0.5 second of errors at 60fps
+    
     // MARK: - Actions
     
     var isStreaming: Bool {
@@ -191,6 +195,7 @@ class StreamingState: ObservableObject {
                 Task { @MainActor in
                     switch sendResult {
                     case .success:
+                        self.consecutiveSendErrors = 0  // Reset error counter on success
                         self.framesSinceStats += 1
                         self.bytesSinceStats += UInt64(frameData.count)
                         self.frameCount = self.sequence
@@ -207,9 +212,19 @@ class StreamingState: ObservableObject {
                         }
                         
                     case .failure(let error):
-                        self.logger.error("Send failed: \(error.localizedDescription)")
-                        shouldStop = true
-                        self.connectionState = .error("Send failed")
+                        self.consecutiveSendErrors += 1
+                        
+                        // Only log every 10th error to avoid log spam
+                        if self.consecutiveSendErrors % 10 == 1 {
+                            self.logger.warning("Send error (\(self.consecutiveSendErrors)/\(StreamingState.maxConsecutiveErrors)): \(error.localizedDescription)")
+                        }
+                        
+                        // Only stop after many consecutive errors - allows recovery from transient issues
+                        if self.consecutiveSendErrors >= StreamingState.maxConsecutiveErrors {
+                            self.logger.error("Too many consecutive send failures, stopping stream")
+                            shouldStop = true
+                            self.connectionState = .error("Connection lost")
+                        }
                     }
                 }
             }
@@ -343,6 +358,7 @@ class StreamingState: ObservableObject {
         bytesSinceStats = 0
         sequence = 0
         lastStatsTime = Date()
+        consecutiveSendErrors = 0
     }
     
     /// Create frame data with header
