@@ -1,6 +1,7 @@
 #![cfg(windows)]
 
 use std::io::{BufRead, BufReader};
+use std::os::windows::process::CommandExt;
 use std::process::Stdio;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,9 +11,9 @@ use windows::core::w;
 use windows::Win32::Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM, COLORREF};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, EndPaint, FillRect,
-    GetStockObject, InvalidateRect, LineTo, MoveToEx, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, TextOutW, HBRUSH, HGDIOBJ, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
-    DrawTextW, DT_CENTER, DT_VCENTER, DT_SINGLELINE,
+    GetDeviceCaps, GetStockObject, InvalidateRect, LineTo, MoveToEx, RoundRect, SelectObject, 
+    SetBkMode, SetTextColor, TextOutW, HBRUSH, HGDIOBJ, LOGPIXELSY, PAINTSTRUCT, PS_SOLID, 
+    TRANSPARENT, DrawTextW, DT_CENTER, DT_VCENTER, DT_SINGLELINE,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -22,6 +23,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MSG, SW_SHOW, WM_APP, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_PAINT,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WNDCLASSW, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
 };
+
+// Flag to hide console window when spawning child process
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const ID_BTN_START: usize = 1001;
 const ID_BTN_STOP: usize = 1002;
@@ -80,17 +84,29 @@ struct AppState {
 impl AppState {
     fn new(hwnd: HWND) -> Self {
         unsafe {
-            // Create fonts
+            // Get DPI for proper font scaling
+            let hdc = windows::Win32::Graphics::Gdi::GetDC(hwnd);
+            let dpi = GetDeviceCaps(hdc, LOGPIXELSY);
+            let _ = windows::Win32::Graphics::Gdi::ReleaseDC(hwnd, hdc);
+            
+            // Scale fonts based on DPI (96 is standard DPI)
+            let scale = dpi as f32 / 96.0;
+            let title_size = (24.0 * scale) as i32;
+            let normal_size = (16.0 * scale) as i32;
+            let mono_size = (14.0 * scale) as i32;
+            
+            // Create fonts with proper sizing and quality
+            // Using CLEARTYPE_QUALITY (5) for better rendering
             let font_title = CreateFontW(
-                22, 0, 0, 0, 600, 0, 0, 0, 0, 0, 0, 4, 0,
+                title_size, 0, 0, 0, 600, 0, 0, 0, 0, 0, 0, 5, 0,
                 w!("Segoe UI"),
             );
             let font_normal = CreateFontW(
-                14, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 4, 0,
+                normal_size, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 5, 0,
                 w!("Segoe UI"),
             );
             let font_mono = CreateFontW(
-                12, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 4, 0,
+                mono_size, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 5, 0,
                 w!("Consolas"),
             );
 
@@ -133,6 +149,11 @@ impl AppState {
 
 pub fn run() -> anyhow::Result<()> {
     unsafe {
+        // Enable DPI awareness for crisp rendering on high-DPI displays
+        let _ = windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(
+            windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        );
+        
         let hinstance = GetModuleHandleW(None)?;
 
         if !UI_CLASS_REGISTERED.swap(true, Ordering::SeqCst) {
@@ -600,6 +621,9 @@ fn spawn_receiver_child(
     if fullscreen {
         cmd.arg("--fullscreen");
     }
+    
+    // Use CREATE_NO_WINDOW to prevent a console window from appearing
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 

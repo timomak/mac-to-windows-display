@@ -16,7 +16,10 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, SetWindowPos, HWND_TOPMOST, SWP_SHOWWINDOW,
+    FindWindowW, GetWindowLongW, SetWindowLongW, SetWindowPos, 
+    GWL_STYLE, HWND_TOPMOST, SWP_FRAMECHANGED, SWP_SHOWWINDOW,
+    WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+    WS_SYSMENU, WS_THICKFRAME,
 };
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
@@ -149,17 +152,23 @@ fn get_screen_dimensions() -> Option<(usize, usize)> {
     None
 }
 
-/// Set window to true fullscreen by positioning at (0,0) covering entire screen
+/// Set window to true fullscreen by removing all decorations and positioning at (0,0)
 #[cfg(windows)]
 fn set_window_fullscreen(window: &Window) {
     unsafe {
         use windows::core::w;
         
         // Find the window by searching for our window title
-        // minifb creates windows with the title we specified
         let hwnd = FindWindowW(None, w!("ThunderMirror - Waiting for stream..."));
         
         if hwnd.0 != 0 {
+            // Remove all window decorations by modifying window style
+            let current_style = GetWindowLongW(hwnd, GWL_STYLE);
+            let styles_to_remove = WS_CAPTION.0 | WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | 
+                                   WS_MAXIMIZEBOX.0 | WS_SYSMENU.0 | WS_BORDER.0 | WS_DLGFRAME.0;
+            let new_style = current_style & !(styles_to_remove as i32);
+            SetWindowLongW(hwnd, GWL_STYLE, new_style);
+            
             // Get the monitor info for accurate fullscreen
             let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
             let mut mi = MONITORINFO {
@@ -172,6 +181,7 @@ fn set_window_fullscreen(window: &Window) {
                 let height = mi.rcMonitor.bottom - mi.rcMonitor.top;
                 
                 // Position window at monitor origin with full size, topmost
+                // SWP_FRAMECHANGED is needed to apply the style changes
                 let _ = SetWindowPos(
                     hwnd,
                     HWND_TOPMOST,
@@ -179,7 +189,7 @@ fn set_window_fullscreen(window: &Window) {
                     mi.rcMonitor.top,
                     width,
                     height,
-                    SWP_SHOWWINDOW,
+                    SWP_SHOWWINDOW | SWP_FRAMECHANGED,
                 );
             }
         }
@@ -236,6 +246,9 @@ fn main() -> anyhow::Result<()> {
     info!("ThunderMirror Windows Receiver v0.2.0");
     info!("Listening on port: {}", args.port);
     info!("Fullscreen: {}", args.fullscreen);
+    if args.fullscreen {
+        info!("Press Escape to exit fullscreen");
+    }
 
     // Create tokio runtime
     let rt = tokio::runtime::Runtime::new()?;
