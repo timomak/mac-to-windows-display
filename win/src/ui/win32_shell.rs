@@ -103,7 +103,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     24,
                     hwnd,
                     HMENU(ID_LBL_STATUS as isize),
-                    hinstance.into(),
+                    hinstance,
                     None,
                 );
 
@@ -118,7 +118,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     32,
                     hwnd,
                     HMENU(ID_BTN_START as isize),
-                    hinstance.into(),
+                    hinstance,
                     None,
                 );
 
@@ -133,7 +133,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     32,
                     hwnd,
                     HMENU(ID_BTN_STOP as isize),
-                    hinstance.into(),
+                    hinstance,
                     None,
                 );
 
