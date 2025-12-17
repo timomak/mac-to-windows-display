@@ -6,7 +6,7 @@ import Logging
 /// Screen capture delegate for receiving frames from ScreenCaptureKit
 ///
 /// This class handles real screen capture using macOS ScreenCaptureKit framework.
-/// It captures the main display at 60 fps and delivers RGBA frames.
+/// It captures the main display at 60 fps and delivers BGRA frames (native format for H.264 encoding).
 @available(macOS 12.3, *)
 class ScreenCapture: NSObject {
     private var stream: SCStream?
@@ -17,11 +17,17 @@ class ScreenCapture: NSObject {
     private(set) var width: UInt16 = 0
     private(set) var height: UInt16 = 0
     
-    /// Frame callback - called for each captured frame
+    /// Frame callback - called for each captured frame (BGRA format by default)
     var onFrame: ((Data, UInt16, UInt16) -> Void)?
     
     /// Resolution change callback
     var onResolutionChange: ((UInt16, UInt16) -> Void)?
+    
+    /// Whether to capture at native (physical pixel) resolution. Default false for better performance.
+    var captureAtNativeResolution: Bool = false
+    
+    /// Maximum width in pixels. If source is wider, scales down maintaining aspect ratio.
+    var maxWidth: Int?
     
     /// Start capturing the screen
     /// - Throws: Error if capture cannot be started
@@ -42,21 +48,50 @@ class ScreenCapture: NSObject {
             throw ScreenCaptureError.noDisplayFound
         }
         
-        logger.info("Found display: \(display.width)x\(display.height)")
+        // Query physical pixel dimensions (Retina-aware)
+        let displayMode = CGDisplayCopyDisplayMode(display.displayID)
+        let nativeWidth = displayMode?.pixelWidth ?? 0
+        let nativeHeight = displayMode?.pixelHeight ?? 0
+        let logicalWidth = display.width
+        let logicalHeight = display.height
+        
+        var captureWidth: Int
+        var captureHeight: Int
+        
+        if captureAtNativeResolution && nativeWidth > 0 && nativeHeight > 0 {
+            captureWidth = nativeWidth
+            captureHeight = nativeHeight
+            logger.info("Source: \(captureWidth)x\(captureHeight) (native Retina)")
+        } else {
+            captureWidth = logicalWidth
+            captureHeight = logicalHeight
+            logger.info("Source: \(captureWidth)x\(captureHeight) (logical)")
+        }
+        
+        // Apply maxWidth if specified and source is wider
+        if let maxW = maxWidth, maxW < 9999, captureWidth > maxW {
+            let aspectRatio = Double(captureHeight) / Double(captureWidth)
+            captureWidth = maxW
+            captureHeight = Int(Double(maxW) * aspectRatio)
+            // Ensure dimensions are even (required for H.264)
+            captureWidth = (captureWidth / 2) * 2
+            captureHeight = (captureHeight / 2) * 2
+            logger.info("Scaled to \(captureWidth)x\(captureHeight) (maxWidth: \(maxW))")
+        }
         
         // Store initial resolution
-        width = UInt16(display.width)
-        height = UInt16(display.height)
+        width = UInt16(captureWidth)
+        height = UInt16(captureHeight)
         
         // Configure stream
         let filter = SCContentFilter(display: display, excludingWindows: [])
         
         let config = SCStreamConfiguration()
-        config.width = display.width
-        config.height = display.height
+        config.width = captureWidth
+        config.height = captureHeight
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60) // 60 fps
         config.queueDepth = 3
-        config.pixelFormat = kCVPixelFormatType_32BGRA // BGRA format (will convert to RGBA)
+        config.pixelFormat = kCVPixelFormatType_32BGRA // BGRA format (optimal for H.264)
         config.showsCursor = true
         
         // Create stream output handler
@@ -92,14 +127,10 @@ class ScreenCapture: NSObject {
     
     /// Check if Screen Recording permission is granted
     private func checkPermission() async throws -> Bool {
-        // CGPreflightScreenCaptureAccess checks without prompting
-        // CGRequestScreenCaptureAccess will prompt if needed
-        
         if CGPreflightScreenCaptureAccess() {
             return true
         }
         
-        // Request access (this will show the system dialog)
         logger.info("Requesting Screen Recording permission...")
         let granted = CGRequestScreenCaptureAccess()
         
@@ -139,35 +170,23 @@ class ScreenCapture: NSObject {
             onResolutionChange?(width, height)
         }
         
-        // Convert BGRA to RGBA
+        // Pass BGRA directly (optimal for H.264 encoding - no conversion needed!)
         let pixelCount = pixelWidth * pixelHeight
-        var rgbaData = Data(count: pixelCount * 4)
+        var bgraData = Data(count: pixelCount * 4)
         
-        rgbaData.withUnsafeMutableBytes { rgbaPtr in
-            guard let rgbaDest = rgbaPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                return
-            }
+        bgraData.withUnsafeMutableBytes { destPtr in
+            guard let dest = destPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            let src = baseAddress.assumingMemoryBound(to: UInt8.self)
             
-            let bgraSource = baseAddress.assumingMemoryBound(to: UInt8.self)
-            
+            // Copy row by row to handle bytesPerRow padding
             for y in 0..<pixelHeight {
-                let rowOffset = y * bytesPerRow
-                let destRowOffset = y * pixelWidth * 4
-                
-                for x in 0..<pixelWidth {
-                    let srcOffset = rowOffset + x * 4
-                    let destOffset = destRowOffset + x * 4
-                    
-                    // BGRA -> RGBA
-                    rgbaDest[destOffset + 0] = bgraSource[srcOffset + 2] // R
-                    rgbaDest[destOffset + 1] = bgraSource[srcOffset + 1] // G
-                    rgbaDest[destOffset + 2] = bgraSource[srcOffset + 0] // B
-                    rgbaDest[destOffset + 3] = bgraSource[srcOffset + 3] // A
-                }
+                let srcOffset = y * bytesPerRow
+                let dstOffset = y * pixelWidth * 4
+                memcpy(dest.advanced(by: dstOffset), src.advanced(by: srcOffset), pixelWidth * 4)
             }
         }
         
-        onFrame?(rgbaData, width, height)
+        onFrame?(bgraData, width, height)
     }
 }
 
@@ -202,4 +221,3 @@ enum ScreenCaptureError: LocalizedError {
         }
     }
 }
-

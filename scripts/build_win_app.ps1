@@ -35,15 +35,15 @@ if (!(Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
 
-# Build the release executable
-Write-Host "[1/3] Building Rust project (release)..."
+# Build the release executables (both UI wrapper and CLI receiver)
+Write-Host "[1/4] Building Rust project (release)..."
 Write-Host ""
 
 Push-Location $WinDir
 try {
-    # Run cargo build
+    # Run cargo build for both binaries
     $env:CARGO_TERM_COLOR = "always"
-    cargo build --release --bin ThunderReceiver
+    cargo build --release --bin ThunderReceiver --bin thunder_receiver
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
@@ -57,9 +57,9 @@ try {
     Pop-Location
 }
 
-# Copy executable to output directory
+# Copy executables to output directory
 Write-Host ""
-Write-Host "[2/3] Copying executable..."
+Write-Host "[2/4] Copying UI executable..."
 
 $SourceExe = Join-Path $WinDir "target\release\ThunderReceiver.exe"
 $DestExe = Join-Path $OutputDir "ThunderReceiver.exe"
@@ -68,18 +68,36 @@ if (Test-Path $SourceExe) {
     Copy-Item -Path $SourceExe -Destination $DestExe -Force
     Write-Host "      Copied to: $DestExe"
 } else {
-    Write-Host "ERROR: Built executable not found at $SourceExe"
+    Write-Host "ERROR: Built UI executable not found at $SourceExe"
     exit 1
 }
 
-# Verify the executable
+# Copy the CLI receiver (required by the UI wrapper)
 Write-Host ""
-Write-Host "[3/3] Verifying..."
+Write-Host "[3/4] Copying CLI receiver..."
 
-if (Test-Path $DestExe) {
-    $fileInfo = Get-Item $DestExe
-    $sizeMB = [math]::Round($fileInfo.Length / 1MB, 2)
-    Write-Host "      Executable size: $sizeMB MB"
+$SourceCliExe = Join-Path $WinDir "target\release\thunder_receiver.exe"
+$DestCliExe = Join-Path $OutputDir "thunder_receiver.exe"
+
+if (Test-Path $SourceCliExe) {
+    Copy-Item -Path $SourceCliExe -Destination $DestCliExe -Force
+    Write-Host "      Copied to: $DestCliExe"
+} else {
+    Write-Host "ERROR: Built CLI executable not found at $SourceCliExe"
+    exit 1
+}
+
+# Verify the executables
+Write-Host ""
+Write-Host "[4/4] Verifying..."
+
+if ((Test-Path $DestExe) -and (Test-Path $DestCliExe)) {
+    $uiInfo = Get-Item $DestExe
+    $cliInfo = Get-Item $DestCliExe
+    $uiSizeMB = [math]::Round($uiInfo.Length / 1MB, 2)
+    $cliSizeMB = [math]::Round($cliInfo.Length / 1MB, 2)
+    Write-Host "      ThunderReceiver.exe (UI): $uiSizeMB MB"
+    Write-Host "      thunder_receiver.exe (CLI): $cliSizeMB MB"
     Write-Host "      OK"
 } else {
     Write-Host "ERROR: Verification failed"
@@ -91,14 +109,18 @@ Write-Host "========================================"
 Write-Host "Build complete!"
 Write-Host "========================================"
 Write-Host ""
-Write-Host "Executable: $DestExe"
+Write-Host "Files:"
+Write-Host "  UI:  $DestExe"
+Write-Host "  CLI: $DestCliExe"
 Write-Host ""
 Write-Host "To run:"
 Write-Host "  & `"$DestExe`""
 Write-Host ""
+Write-Host "NOTE: Both files must be kept together in the same directory."
+Write-Host ""
 Write-Host "To create a desktop shortcut:"
-Write-Host "  Right-click the .exe -> Send to -> Desktop (create shortcut)"
+Write-Host "  Right-click ThunderReceiver.exe -> Send to -> Desktop (create shortcut)"
 Write-Host ""
 Write-Host "To add to Start Menu:"
-Write-Host "  Copy to: $env:APPDATA\Microsoft\Windows\Start Menu\Programs\"
+Write-Host "  Copy BOTH files to: $env:APPDATA\Microsoft\Windows\Start Menu\Programs\"
 

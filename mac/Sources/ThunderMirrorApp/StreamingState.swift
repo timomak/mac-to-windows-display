@@ -65,7 +65,9 @@ class StreamingState: ObservableObject {
     @Published var targetIP: String = "192.168.50.2"
     @Published var port: UInt16 = 9999
     @Published var mode: StreamMode = .mirror
-    @Published var bitrateMbps: Int = 10
+    @Published var bitrateMbps: Int = 50  // Higher default for better quality
+    @Published var maxWidth: Int = 1920   // Cap resolution for smooth playback
+    @Published var useNativeResolution: Bool = false  // Logical resolution by default
     
     // Stats
     @Published var fps: Double = 0
@@ -151,6 +153,11 @@ class StreamingState: ObservableObject {
         let capture = ScreenCapture()
         screenCapture = capture
         
+        // Configure capture resolution
+        capture.captureAtNativeResolution = useNativeResolution
+        capture.maxWidth = maxWidth
+        // ScreenCapture delivers BGRA by default (convertToRGBA = false), perfect for H.264
+        
         let encoder = H264Encoder()
         h264Encoder = encoder
         
@@ -210,8 +217,8 @@ class StreamingState: ObservableObject {
             self.sequence += 1
         }
         
-        // Handle captured frames
-        capture.onFrame = { [weak self] rgbaData, width, height in
+        // Handle captured frames (data is already BGRA from ScreenCapture)
+        capture.onFrame = { [weak self] bgraData, width, height in
             guard let self = self, !shouldStop else { return }
             
             currentWidth = width
@@ -235,7 +242,7 @@ class StreamingState: ObservableObject {
                 }
             }
             
-            // Create pixel buffer from RGBA data
+            // Create pixel buffer from BGRA data (no conversion needed!)
             var pixelBuffer: CVPixelBuffer?
             let attrs: [String: Any] = [
                 kCVPixelBufferCGImageCompatibilityKey as String: true,
@@ -262,20 +269,13 @@ class StreamingState: ObservableObject {
                 let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
                 let dest = baseAddress.assumingMemoryBound(to: UInt8.self)
                 
-                // Convert RGBA to BGRA
-                rgbaData.withUnsafeBytes { srcPtr in
+                // Fast copy - data is already BGRA, just handle row padding
+                bgraData.withUnsafeBytes { srcPtr in
                     guard let src = srcPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
                     
+                    let srcBytesPerRow = Int(width) * 4
                     for y in 0..<Int(height) {
-                        for x in 0..<Int(width) {
-                            let srcOffset = (y * Int(width) + x) * 4
-                            let dstOffset = y * bytesPerRow + x * 4
-                            
-                            dest[dstOffset + 0] = src[srcOffset + 2]  // B
-                            dest[dstOffset + 1] = src[srcOffset + 1]  // G
-                            dest[dstOffset + 2] = src[srcOffset + 0]  // R
-                            dest[dstOffset + 3] = src[srcOffset + 3]  // A
-                        }
+                        memcpy(dest.advanced(by: y * bytesPerRow), src.advanced(by: y * srcBytesPerRow), srcBytesPerRow)
                     }
                 }
             }

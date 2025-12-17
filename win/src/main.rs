@@ -11,6 +11,31 @@ use clap::Parser;
 use minifb::{Key, Window, WindowOptions};
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
+
+/// Fast YUV to RGB conversion using integer math (BT.709 full range)
+/// VideoToolbox encodes with full range, so we decode with full range coefficients
+#[inline(always)]
+fn yuv_to_rgb_bt709_fast(y: u8, u: u8, v: u8) -> (u8, u8, u8) {
+    // Fixed point arithmetic (shift by 10 bits = multiply by 1024)
+    // BT.709 coefficients scaled by 1024:
+    // R = Y + 1.5748 * V' => Y + 1613 * V' / 1024
+    // G = Y - 0.1873 * U' - 0.4681 * V' => Y - (192 * U' + 479 * V') / 1024
+    // B = Y + 1.8556 * U' => Y + 1900 * U' / 1024
+    
+    let y_i = y as i32;
+    let u_i = u as i32 - 128;
+    let v_i = v as i32 - 128;
+
+    let r = y_i + ((1613 * v_i) >> 10);
+    let g = y_i - ((192 * u_i + 479 * v_i) >> 10);
+    let b = y_i + ((1900 * u_i) >> 10);
+
+    (
+        r.clamp(0, 255) as u8,
+        g.clamp(0, 255) as u8,
+        b.clamp(0, 255) as u8,
+    )
+}
 use quinn::{Endpoint, ServerConfig};
 use rustls::{Certificate, PrivateKey};
 use tokio::sync::mpsc;
@@ -145,7 +170,6 @@ fn main() -> anyhow::Result<()> {
     let mut width: usize = 1920;
     let mut height: usize = 1080;
     let mut buffer: Vec<u32> = vec![0; width * height];
-    let mut rgb_buffer: Vec<u8> = Vec::new();
 
     let window_opts = if args.fullscreen {
         WindowOptions {
@@ -212,19 +236,35 @@ fn main() -> anyhow::Result<()> {
                                 dec_height,
                             );
 
-                            // Convert YUV to RGB and store in buffer
-                            // Reuse an RGB buffer to avoid per-frame allocations.
-                            rgb_buffer.resize(dec_width * dec_height * 3, 0);
-                            decoded.write_rgb8(&mut rgb_buffer);
+                            // Convert YUV to RGB directly to u32 buffer using BT.709 full range
+                            // This gives much better color accuracy than write_rgb8()
+                            let y_plane = decoded.y();
+                            let u_plane = decoded.u();
+                            let v_plane = decoded.v();
+                            let y_stride = decoded.strides().0;
+                            let u_stride = decoded.strides().1;
+                            let v_stride = decoded.strides().2;
 
-                            // Convert RGB to u32 buffer (0xRRGGBB format for minifb)
-                            let max_pixels = buffer.len().min(rgb_buffer.len() / 3);
-                            for i in 0..max_pixels {
-                                let base = i * 3;
-                                let r = rgb_buffer[base] as u32;
-                                let g = rgb_buffer[base + 1] as u32;
-                                let b = rgb_buffer[base + 2] as u32;
-                                buffer[i] = (r << 16) | (g << 8) | b;
+                            for row in 0..dec_height {
+                                for col in 0..dec_width {
+                                    let y_idx = row * y_stride + col;
+                                    // U and V are subsampled 2x2 (YUV 4:2:0)
+                                    let uv_row = row / 2;
+                                    let uv_col = col / 2;
+                                    let u_idx = uv_row * u_stride + uv_col;
+                                    let v_idx = uv_row * v_stride + uv_col;
+
+                                    let y = y_plane[y_idx];
+                                    let u = u_plane[u_idx];
+                                    let v = v_plane[v_idx];
+
+                                    let (r, g, b) = yuv_to_rgb_bt709_fast(y, u, v);
+                                    
+                                    let pixel_idx = row * dec_width + col;
+                                    if pixel_idx < buffer.len() {
+                                        buffer[pixel_idx] = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+                                    }
+                                }
                             }
                             h264_frames += 1;
                         }

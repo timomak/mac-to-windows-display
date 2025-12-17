@@ -210,6 +210,28 @@ struct ContentView: View {
                 Divider()
                     .background(Color.white.opacity(0.1))
                 
+                // Resolution
+                HStack {
+                    Text("Max Width")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                    
+                    Spacer()
+                    
+                    Picker("", selection: $state.maxWidth) {
+                        Text("1280").tag(1280)
+                        Text("1920").tag(1920)
+                        Text("2560").tag(2560)
+                        Text("Native").tag(9999)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 180)
+                    .disabled(state.isStreaming)
+                }
+                
+                Divider()
+                    .background(Color.white.opacity(0.1))
+                
                 // Bitrate
                 HStack {
                     Text("Bitrate")
@@ -222,7 +244,7 @@ struct ContentView: View {
                         Slider(value: .init(
                             get: { Double(state.bitrateMbps) },
                             set: { state.bitrateMbps = Int($0) }
-                        ), in: 1...50, step: 1)
+                        ), in: 10...100, step: 5)
                         .frame(width: 100)
                         .disabled(state.isStreaming)
                         
