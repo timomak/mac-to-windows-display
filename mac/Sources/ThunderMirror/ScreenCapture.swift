@@ -74,8 +74,11 @@ class ScreenCapture: NSObject {
         }
         
         // Query physical pixel dimensions (Retina-aware).
-        let nativeWidth = Int(CGDisplayPixelsWide(display.displayID))
-        let nativeHeight = Int(CGDisplayPixelsHigh(display.displayID))
+        // CGDisplayPixelsWide/High return *logical* dimensions on modern macOS.
+        // Use CGDisplayCopyDisplayMode to get the true backing pixel size.
+        let displayMode = CGDisplayCopyDisplayMode(display.displayID)
+        let nativeWidth = displayMode?.pixelWidth ?? 0
+        let nativeHeight = displayMode?.pixelHeight ?? 0
         let logicalWidth = display.width
         let logicalHeight = display.height
 
@@ -84,7 +87,7 @@ class ScreenCapture: NSObject {
         if captureAtNativeResolution && nativeWidth > 0 && nativeHeight > 0 {
             captureWidth = nativeWidth
             captureHeight = nativeHeight
-            logger.info("Using displayID \(display.displayID): \(captureWidth)x\(captureHeight) (native pixels)")
+            logger.info("Using displayID \(display.displayID): \(captureWidth)x\(captureHeight) (native pixels, Retina)")
         } else {
             captureWidth = logicalWidth
             captureHeight = logicalHeight
