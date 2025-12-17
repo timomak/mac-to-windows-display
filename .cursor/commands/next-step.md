@@ -51,18 +51,30 @@ cd mac && swift build
 cd win && cargo fmt --check && cargo clippy -- -D warnings
 ```
 
-### 5. Validate SSH First
+### 5. Validate Connectivity (Prefer MCP)
 
-Before any Windows tests, verify SSH works:
+Before any Windows tests, verify connectivity to Windows works. Prefer using the MCP SSH tools first (they surface better errors inside Cursor), and fall back to plain `ssh` if MCP isn’t connected.
+
+**MCP (preferred):**
+- Use `blade18-tb` MCP tools:
+  - `checkConnectivity(hostAlias="blade18-tb")`
+  - `runRemoteCommand(hostAlias="blade18-tb", command="whoami")`
+
+**SSH fallback:**
 ```bash
 ssh blade18-tb "whoami"
 ```
 
 If this fails, STOP and instruct user to re-run setup scripts.
 
-### 6. Run Windows Tests via SSH
+### 6. Run Windows Tests (Prefer MCP)
 
 If the change affects Windows:
+
+**MCP (preferred):**
+- `runRemoteCommand(hostAlias="blade18-tb", command="cd /path/to/project && powershell.exe -File scripts/check_link_win.ps1")`
+
+**SSH fallback:**
 ```bash
 ssh blade18-tb "cd /path/to/project && powershell.exe -File scripts/check_link_win.ps1"
 ```
@@ -142,7 +154,7 @@ Done! Phase 1 completed.
 - Always validate SSH connectivity before remote operations
 - Complete all items in a phase before committing
 - If unsure about an implementation detail, ask the user
-- Use SSH MCP if available, fall back to plain ssh blade18-tb commands
+- Prefer SSH MCP tools (`blade18-tb`, `mac-tb`) for testing/debugging; fall back to plain `ssh blade18-tb` / `ssh mac-tb` commands if MCP isn’t connected
 - Collect logs from both sides when debugging
 - If a phase has many items, you may want to run checks after each major item, but only commit once at the end
 

@@ -17,6 +17,10 @@ ssh blade18-tb "cd /path/to/project/win && cargo build --release"
 
 If baseline streaming is broken, STOP. Fix it first.
 
+**Preferred (inside Cursor):** use the MCP SSH tools for `blade18-tb` so errors show up clearly in chat:
+- `checkConnectivity(hostAlias="blade18-tb")`
+- `runRemoteCommand(hostAlias="blade18-tb", command="cd /path/to/project/win && cargo build --release")`
+
 ### 2. Read Phase 5 Items from PHASE.md
 
 Check `docs/PHASE.md` for Phase 5 checklist items. Identify which benchmark or feature to test.
@@ -41,6 +45,10 @@ cd mac && swift run ThunderMirror \
 ssh blade18-tb "cd /path/to/project/win && \
   cargo run --release 2>&1" | tee logs/benchmarks/win_<config>.log
 ```
+
+**Preferred (inside Cursor):** use the MCP SSH tools for the Windows side:
+- `runRemoteCommand(hostAlias="blade18-tb", command="cd /path/to/project/win && cargo run --release 2>&1")`
+- Note: if you need local `tee` logging, you can either (a) run the receiver via plain `ssh ... | tee ...`, or (b) capture `stdout` from the MCP result and write it to `logs/benchmarks/win_<config>.log`.
 
 ### 4. Benchmark Configurations to Test
 
@@ -173,4 +181,9 @@ If targets aren't met, try:
 |------|----|-------------|
 | Mac | Windows | `ssh blade18-tb` |
 | Windows | Mac | `ssh mac-tb` |
+
+For testing/debugging in Cursor, prefer the MCP SSH tools instead of raw SSH:
+- Use MCP server `blade18-tb` to run commands on Windows
+- Use MCP server `mac-tb` to run commands on the Mac (when configured and reachable from Windows)
+
 
