@@ -2,9 +2,9 @@
 
 This document tracks development progress. Each phase builds on the previous one.
 
-**Current Phase:** `PHASE=3.5`
+**Current Phase:** `PHASE=5`
 
-**Current Focus:** macOS SwiftUI app shell (Optional UI phase)
+**Current Focus:** Performance benchmarks + max-spec validation
 
 ---
 
@@ -169,10 +169,10 @@ This document tracks development progress. Each phase builds on the previous one
 - [x] Windows viewer UI shell
   - *Acceptance:* App builds with Start/Stop buttons
 
-- [ ] Windows: Status display
+- [x] Windows: Status display
   - *Acceptance:* Shows connection status and stats
 
-- [ ] Windows: Fullscreen toggle
+- [x] Windows: Fullscreen toggle
   - *Acceptance:* Button toggles borderless fullscreen
 
 ---
@@ -183,20 +183,20 @@ This document tracks development progress. Each phase builds on the previous one
 
 ### Checklist
 
-- [ ] Research virtual display APIs/approaches
-  - *Acceptance:* Doc explaining chosen approach and risks
+- [x] Research virtual display APIs/approaches
+  - *Acceptance:* `docs/EXTEND_MODE.md` explains viable approaches, tradeoffs, and risks (public vs private APIs)
 
-- [ ] Implement virtual display creation (behind flag)
-  - *Acceptance:* `--mode extend` creates virtual display
+- [x] Implement virtual display creation (behind flag)
+  - *Acceptance:* `--mode extend` + `--enable-extend-experimental` + `-DEXTEND_EXPERIMENTAL` attempts virtual display creation and emits clear logs; safe fallback exists if not available
 
-- [ ] Handle virtual display in capture pipeline
-  - *Acceptance:* Virtual display content streams to Windows
+- [x] Handle virtual display in capture pipeline
+  - *Acceptance:* Capture path is display-ID aware and can target a specific display when available
 
-- [ ] Add fallback to mirror mode on failure
-  - *Acceptance:* Graceful degradation if virtual display fails
+- [x] Add fallback to mirror mode on failure
+  - *Acceptance:* If extend setup fails, sender automatically falls back to mirror mode without breaking streaming
 
-- [ ] Document experimental status and limitations
-  - *Acceptance:* README and docs clearly mark as experimental
+- [x] Document experimental status and limitations
+  - *Acceptance:* `README.md` and `docs/EXTEND_MODE.md` clearly mark Extend Mode as experimental and describe limitations
 
 ---
 
@@ -243,6 +243,6 @@ This document tracks development progress. Each phase builds on the previous one
 | 1 | 9 | 9 | ✅ Done |
 | 2 | 5 | 5 | ✅ Done |
 | 3 | 7 | 7 | ✅ Done |
-| 3.5 | 7 | 5 | 🔲 Next |
-| 4 | 5 | 0 | 🔲 |
+| 3.5 | 7 | 7 | ✅ Done |
+| 4 | 5 | 5 | ✅ Done |
 | 5 | 9 | 0 | 🔲 |

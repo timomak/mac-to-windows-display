@@ -25,7 +25,7 @@ class ScreenCapture: NSObject {
     
     /// Start capturing the screen
     /// - Throws: Error if capture cannot be started
-    func startCapture() async throws {
+    func startCapture(preferredDisplayID: CGDirectDisplayID? = nil) async throws {
         // Check for Screen Recording permission
         let hasPermission = try await checkPermission()
         guard hasPermission else {
@@ -38,11 +38,19 @@ class ScreenCapture: NSObject {
             onScreenWindowsOnly: true
         )
         
-        guard let display = content.displays.first else {
+        let displays = content.displays
+        guard !displays.isEmpty else {
             throw ScreenCaptureError.noDisplayFound
         }
+
+        // Choose display: preferred → main → first available.
+        let desiredID = preferredDisplayID ?? CGMainDisplayID()
+        let display = displays.first(where: { $0.displayID == desiredID }) ?? displays.first!
+        if display.displayID != desiredID {
+            logger.warning("Preferred displayID \(desiredID) not found; using displayID \(display.displayID) instead.")
+        }
         
-        logger.info("Found display: \(display.width)x\(display.height)")
+        logger.info("Using displayID \(display.displayID): \(display.width)x\(display.height)")
         
         // Store initial resolution
         width = UInt16(display.width)

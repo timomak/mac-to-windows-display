@@ -3,6 +3,7 @@ import Foundation
 import Logging
 import ScreenCaptureKit
 import VideoToolbox
+import CoreGraphics
 
 /// ThunderMirror Mac Sender CLI
 ///
@@ -23,6 +24,12 @@ struct ThunderMirror: AsyncParsableCommand {
 
     @Option(name: .long, help: "Streaming mode (mirror or extend)")
     var mode: StreamMode = .mirror
+
+    @Flag(
+        name: .long,
+        help: "Enable experimental extend mode setup (requires building with -Xswiftc -DEXTEND_EXPERIMENTAL; otherwise will fall back to mirror)"
+    )
+    var enableExtendExperimental: Bool = false
 
     @Option(name: .long, help: "Log level (debug, info, warn, error)")
     var logLevel: String = "info"
@@ -48,6 +55,7 @@ struct ThunderMirror: AsyncParsableCommand {
         let targetIPValue = targetIP
         let portValue = port
         let modeValue = mode
+        let enableExtendExperimentalValue = enableExtendExperimental
         let useTestPattern = testPattern
         let useRaw = raw
         let targetBitrate = Int32(bitrate * 1_000_000)
@@ -67,6 +75,20 @@ struct ThunderMirror: AsyncParsableCommand {
         logger.info("Mode: \(modeValue)")
         logger.info("Source: \(useTestPattern ? "test pattern" : "screen capture")")
         logger.info("Encoding: \(useRaw ? "raw RGBA" : "H.264 @ \(bitrate) Mbps")")
+
+        // Resolve effective mode (extend is best-effort + gated)
+        var effectiveMode = modeValue
+        if modeValue == .extend {
+            if !enableExtendExperimentalValue {
+                logger.warning("Extend mode requested but --enable-extend-experimental was not set; falling back to mirror.")
+                effectiveMode = .mirror
+            } else {
+                #if !EXTEND_EXPERIMENTAL
+                logger.warning("Extend mode requested but this binary was not built with -DEXTEND_EXPERIMENTAL; falling back to mirror.")
+                effectiveMode = .mirror
+                #endif
+            }
+        }
 
         // Connect to receiver
         let client = QuicClient()
@@ -90,6 +112,7 @@ struct ThunderMirror: AsyncParsableCommand {
                                     client: client,
                                     logger: logger,
                                     duration: runDuration,
+                                    mode: effectiveMode,
                                     useH264: !useRaw,
                                     bitrate: targetBitrate
                                 )
@@ -199,13 +222,15 @@ func streamScreenCaptureAsync(
     client: QuicClient,
     logger: Logger,
     duration: Int,
+    mode: StreamMode = .mirror,
     useH264: Bool = true,
     bitrate: Int32 = 10_000_000
 ) async throws {
-    logger.info("Starting screen capture (H.264: \(useH264))...")
+    logger.info("Starting screen capture (mode: \(mode), H.264: \(useH264))...")
     
     let capture = ScreenCapture()
     let encoder: H264Encoder? = useH264 ? H264Encoder() : nil
+    var virtualDisplayHandle: VirtualDisplayHandle?
     
     var sequence: UInt64 = 0
     let startTime = Date()
@@ -377,7 +402,33 @@ func streamScreenCaptureAsync(
     }
     
     // Start capture
-    try await capture.startCapture()
+    do {
+        switch mode {
+        case .mirror:
+            try await capture.startCapture(preferredDisplayID: CGMainDisplayID())
+        case .extend:
+            #if EXTEND_EXPERIMENTAL
+            do {
+                let manager = VirtualDisplayManager(logger: logger)
+                virtualDisplayHandle = try manager.createVirtualDisplay()
+                try await capture.startCapture(preferredDisplayID: virtualDisplayHandle?.displayID)
+            } catch {
+                logger.warning("Extend mode setup failed (\(error.localizedDescription)); falling back to mirror.")
+                virtualDisplayHandle?.teardown()
+                virtualDisplayHandle = nil
+                try await capture.startCapture(preferredDisplayID: CGMainDisplayID())
+            }
+            #else
+            // Should be unreachable due to gating, but keep safe.
+            logger.warning("Extend mode path not compiled; falling back to mirror.")
+            try await capture.startCapture(preferredDisplayID: CGMainDisplayID())
+            #endif
+        }
+    } catch {
+        virtualDisplayHandle?.teardown()
+        virtualDisplayHandle = nil
+        throw error
+    }
     
     // Wait for duration or signal
     if duration > 0 {
@@ -405,6 +456,7 @@ func streamScreenCaptureAsync(
     encoder?.shutdown()
     await capture.stopCapture()
     client.close()
+    virtualDisplayHandle?.teardown()
     logger.info("Streaming complete. Sent \(sequence) frames.")
 }
 

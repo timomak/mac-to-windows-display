@@ -110,6 +110,8 @@ Virtual display creation on macOS requires using private/undocumented APIs or ke
 
 If virtual display fails, the system falls back to mirror mode.
 
+See `docs/EXTEND_MODE.md` for the current research findings, tradeoffs, and the recommended long-term approach.
+
 ## Logging
 
 All components log to:
