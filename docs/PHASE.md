@@ -166,7 +166,7 @@ This document tracks development progress. Each phase builds on the previous one
 - [x] macOS: Status and stats display
   - *Acceptance:* Shows FPS, bitrate, latency
 
-- [ ] Windows viewer UI shell
+- [x] Windows viewer UI shell
   - *Acceptance:* App builds with Start/Stop buttons
 
 - [ ] Windows: Status display
@@ -243,6 +243,6 @@ This document tracks development progress. Each phase builds on the previous one
 | 1 | 9 | 9 | ✅ Done |
 | 2 | 5 | 5 | ✅ Done |
 | 3 | 7 | 7 | ✅ Done |
-| 3.5 | 7 | 4 | 🔲 Next |
+| 3.5 | 7 | 5 | 🔲 Next |
 | 4 | 5 | 0 | 🔲 |
 | 5 | 9 | 0 | 🔲 |

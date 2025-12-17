@@ -52,4 +52,10 @@ default = []
 
 # Windows-specific settings
 [target.'cfg(windows)'.dependencies]
-# Windows crate will be added in Phase 3 for rendering
+# Native Win32 UI shell (Phase 3.5)
+windows = { version = "0.57", features = [
+  "Win32_Foundation",
+  "Win32_System_LibraryLoader",
+  "Win32_UI_Controls",
+  "Win32_UI_WindowsAndMessaging",
+] }
