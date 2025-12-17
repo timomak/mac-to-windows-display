@@ -21,11 +21,13 @@ echo ""
 # Ensure logs directory exists
 mkdir -p "$PROJECT_DIR/logs"
 
-# Build
+# Build (default: release for performance; set THUNDERMIRROR_BUILD_CONFIG=debug to override)
 echo "[1/2] Building..."
 cd "$MAC_DIR"
 
-if swift build 2>&1; then
+BUILD_CONFIG="${THUNDERMIRROR_BUILD_CONFIG:-release}"
+
+if swift build -c "$BUILD_CONFIG" 2>&1; then
     echo "      Build successful"
 else
     echo "      Build failed"
@@ -38,7 +40,7 @@ echo "[2/2] Running..."
 echo ""
 
 # Find the built executable
-EXECUTABLE=$(swift build --show-bin-path)/ThunderMirror
+EXECUTABLE=$(swift build -c "$BUILD_CONFIG" --show-bin-path)/ThunderMirror
 
 if [ -f "$EXECUTABLE" ]; then
     exec "$EXECUTABLE" "$@"

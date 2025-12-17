@@ -16,5 +16,3 @@ pub fn run() -> anyhow::Result<()> {
     eprintln!("thunder_receiver_ui is only supported on Windows.");
     Ok(())
 }
-
-

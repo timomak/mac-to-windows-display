@@ -1,10 +1,10 @@
 #![cfg(windows)]
 
 use std::io::{BufRead, BufReader};
-use std::process::{Child, Command};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use windows::core::w;
 use windows::core::PCWSTR;
@@ -13,8 +13,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, LoadCursorW,
     PostMessageW, PostQuitMessage, RegisterClassW, SetWindowTextW, ShowWindow, TranslateMessage,
-    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, IDC_ARROW, MSG, SW_SHOW,
-    WM_APP, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WNDCLASSW, WS_CHILD, WS_OVERLAPPEDWINDOW,
+    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HMENU, IDC_ARROW, MSG, SW_SHOW, WM_APP,
+    WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WNDCLASSW, WS_CHILD, WS_OVERLAPPEDWINDOW,
     WS_VISIBLE,
 };
 
@@ -219,7 +219,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         if state.child.is_some() {
                             set_status(state.status_hwnd, "Status: Already running");
                         } else {
-                            let fullscreen = state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
+                            let fullscreen =
+                                state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
                             match spawn_receiver_child(hwnd, fullscreen, state.model.clone()) {
                                 Ok(child) => {
                                     state.child = Some(child);
@@ -229,7 +230,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                                     update_labels(state);
                                 }
                                 Err(e) => {
-                                    set_status(state.status_hwnd, &format!("Status: Start failed: {e}"));
+                                    set_status(
+                                        state.status_hwnd,
+                                        &format!("Status: Start failed: {e}"),
+                                    );
                                 }
                             }
                         }
@@ -264,7 +268,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             }
                             update_labels(state);
 
-                            let fullscreen = state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
+                            let fullscreen =
+                                state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
                             match spawn_receiver_child(hwnd, fullscreen, state.model.clone()) {
                                 Ok(child) => {
                                     state.child = Some(child);
@@ -353,7 +358,11 @@ fn set_status(hwnd: HWND, text: &str) {
 
 fn update_fullscreen_button(state: &AppState) {
     let fullscreen = state.model.lock().map(|m| m.fullscreen).unwrap_or(false);
-    let label = if fullscreen { "Fullscreen: On" } else { "Fullscreen: Off" };
+    let label = if fullscreen {
+        "Fullscreen: On"
+    } else {
+        "Fullscreen: Off"
+    };
     set_status(state.fullscreen_btn_hwnd, label);
 }
 
@@ -372,7 +381,13 @@ fn update_labels(state: &mut AppState) {
     let (proc_status, conn_status, stats_line) = state
         .model
         .lock()
-        .map(|m| (m.process_status.clone(), m.connection_status.clone(), m.stats_line.clone()))
+        .map(|m| {
+            (
+                m.process_status.clone(),
+                m.connection_status.clone(),
+                m.stats_line.clone(),
+            )
+        })
         .unwrap_or_else(|_| ("?".to_string(), "?".to_string(), "(none)".to_string()));
 
     set_status(
@@ -382,7 +397,11 @@ fn update_labels(state: &mut AppState) {
     set_status(state.stats_hwnd, &format!("Stats: {stats_line}"));
 }
 
-fn spawn_receiver_child(hwnd: HWND, fullscreen: bool, model: Arc<Mutex<UiModel>>) -> anyhow::Result<Child> {
+fn spawn_receiver_child(
+    hwnd: HWND,
+    fullscreen: bool,
+    model: Arc<Mutex<UiModel>>,
+) -> anyhow::Result<Child> {
     let ui_exe = std::env::current_exe()?;
     let dir = ui_exe
         .parent()
@@ -405,10 +424,7 @@ fn spawn_receiver_child(hwnd: HWND, fullscreen: bool, model: Arc<Mutex<UiModel>>
         cmd.arg("--fullscreen");
     }
 
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
     if let Some(stdout) = child.stdout.take() {
         let model = model.clone();
@@ -472,7 +488,8 @@ fn handle_child_log_line(hwnd: HWND, model: &Arc<Mutex<UiModel>>, line: &str) {
 
 fn to_wide_null(s: &str) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
-    std::ffi::OsStr::new(s).encode_wide().chain(Some(0)).collect()
+    std::ffi::OsStr::new(s)
+        .encode_wide()
+        .chain(Some(0))
+        .collect()
 }
-
-

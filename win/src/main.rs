@@ -80,6 +80,33 @@ struct FrameData {
     frame_type: FrameType,
 }
 
+fn resize_window_and_buffers(
+    window: &mut Window,
+    width: &mut usize,
+    height: &mut usize,
+    buffer: &mut Vec<u32>,
+    new_width: usize,
+    new_height: usize,
+) {
+    if new_width == 0 || new_height == 0 {
+        return;
+    }
+
+    if new_width != *width || new_height != *height {
+        *width = new_width;
+        *height = new_height;
+        buffer.resize(*width * *height, 0);
+
+        // Minifb does not automatically resize the OS window when buffer dims change.
+        // If we don't do this, the image often appears cropped to the top-left.
+        if let Err(e) = window.set_size(*width, *height) {
+            warn!("Failed to resize window to {}x{}: {:?}", *width, *height, e);
+        } else {
+            info!("Resolution changed to {}x{}", *width, *height);
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -122,6 +149,7 @@ fn main() -> anyhow::Result<()> {
     let mut width: usize = 1920;
     let mut height: usize = 1080;
     let mut buffer: Vec<u32> = vec![0; width * height];
+    let mut rgb_buffer: Vec<u8> = Vec::new();
 
     let window_opts = if args.fullscreen {
         WindowOptions {
@@ -160,13 +188,15 @@ fn main() -> anyhow::Result<()> {
             let new_width = frame.width as usize;
             let new_height = frame.height as usize;
 
-            // Resize buffer if needed
-            if new_width != width || new_height != height {
-                width = new_width;
-                height = new_height;
-                buffer = vec![0; width * height];
-                info!("Resolution changed to {}x{}", width, height);
-            }
+            // Resize window + buffer if sender resolution changed.
+            resize_window_and_buffers(
+                &mut window,
+                &mut width,
+                &mut height,
+                &mut buffer,
+                new_width,
+                new_height,
+            );
 
             match frame.frame_type {
                 FrameType::H264 => {
@@ -175,20 +205,30 @@ fn main() -> anyhow::Result<()> {
                         Ok(Some(decoded)) => {
                             // Get dimensions from decoded frame
                             let (dec_width, dec_height) = decoded.dimensions();
-                            
+
+                            // If decoder output dims differ from header, trust decoder.
+                            resize_window_and_buffers(
+                                &mut window,
+                                &mut width,
+                                &mut height,
+                                &mut buffer,
+                                dec_width,
+                                dec_height,
+                            );
+
                             // Convert YUV to RGB and store in buffer
-                            // First, create an RGB buffer
-                            let mut rgb_buffer = vec![0u8; dec_width * dec_height * 3];
+                            // Reuse an RGB buffer to avoid per-frame allocations.
+                            rgb_buffer.resize(dec_width * dec_height * 3, 0);
                             decoded.write_rgb8(&mut rgb_buffer);
-                            
+
                             // Convert RGB to u32 buffer (0xRRGGBB format for minifb)
-                            for (i, pixel) in rgb_buffer.chunks(3).enumerate() {
-                                if i < buffer.len() && pixel.len() >= 3 {
-                                    let r = pixel[0] as u32;
-                                    let g = pixel[1] as u32;
-                                    let b = pixel[2] as u32;
-                                    buffer[i] = (r << 16) | (g << 8) | b;
-                                }
+                            let max_pixels = buffer.len().min(rgb_buffer.len() / 3);
+                            for i in 0..max_pixels {
+                                let base = i * 3;
+                                let r = rgb_buffer[base] as u32;
+                                let g = rgb_buffer[base + 1] as u32;
+                                let b = rgb_buffer[base + 2] as u32;
+                                buffer[i] = (r << 16) | (g << 8) | b;
                             }
                             h264_frames += 1;
                         }
@@ -203,13 +243,13 @@ fn main() -> anyhow::Result<()> {
                 }
                 FrameType::Raw => {
                     // Raw RGBA data - convert directly
-                    for (i, pixel) in frame.rgba_data.chunks(4).enumerate() {
-                        if i < buffer.len() && pixel.len() >= 3 {
-                            let r = pixel[0] as u32;
-                            let g = pixel[1] as u32;
-                            let b = pixel[2] as u32;
-                            buffer[i] = (r << 16) | (g << 8) | b;
-                        }
+                    let max_pixels = buffer.len().min(frame.rgba_data.len() / 4);
+                    for i in 0..max_pixels {
+                        let base = i * 4;
+                        let r = frame.rgba_data[base] as u32;
+                        let g = frame.rgba_data[base + 1] as u32;
+                        let b = frame.rgba_data[base + 2] as u32;
+                        buffer[i] = (r << 16) | (g << 8) | b;
                     }
                     raw_frames += 1;
                 }
@@ -230,7 +270,11 @@ fn main() -> anyhow::Result<()> {
             let fps = frame_count as f64 / last_stats.elapsed().as_secs_f64();
             let mbps =
                 (total_bytes as f64 * 8.0) / (last_stats.elapsed().as_secs_f64() * 1_000_000.0);
-            let codec = if h264_frames > raw_frames { "H.264" } else { "raw" };
+            let codec = if h264_frames > raw_frames {
+                "H.264"
+            } else {
+                "raw"
+            };
             info!(
                 "Stats: {:.1} FPS, {:.1} Mbps, {} (h264:{}, raw:{})",
                 fps, mbps, codec, h264_frames, raw_frames
@@ -252,7 +296,6 @@ fn main() -> anyhow::Result<()> {
     info!("Window closed, shutting down...");
     Ok(())
 }
-
 
 async fn run_quic_server(port: u16, tx: mpsc::Sender<FrameData>) -> anyhow::Result<()> {
     let addr: SocketAddr = format!("0.0.0.0:{}", port).parse()?;
@@ -320,7 +363,10 @@ async fn handle_connection(
             match conn_uni.accept_uni().await {
                 Ok(mut recv) => {
                     // Legacy path: one frame per unidirectional stream.
-                    let data = match recv.read_to_end(MAX_FRAME_PAYLOAD_SIZE + FRAME_HEADER_SIZE).await {
+                    let data = match recv
+                        .read_to_end(MAX_FRAME_PAYLOAD_SIZE + FRAME_HEADER_SIZE)
+                        .await
+                    {
                         Ok(d) => d,
                         Err(e) => {
                             warn!("Failed reading uni stream: {}", e);
@@ -353,7 +399,8 @@ async fn handle_connection(
             match conn_dgram.read_datagram().await {
                 Ok(dgram) => {
                     // Datagram should contain exactly one frame (header + payload).
-                    if let Err(e) = handle_single_frame_datagramlike(dgram.to_vec(), tx_dgram.clone()).await
+                    if let Err(e) =
+                        handle_single_frame_datagramlike(dgram.to_vec(), tx_dgram.clone()).await
                     {
                         debug!("Failed to parse datagram frame: {}", e);
                     }
@@ -371,7 +418,10 @@ async fn handle_connection(
     Ok(())
 }
 
-async fn handle_single_frame_datagramlike(data: Vec<u8>, tx: mpsc::Sender<FrameData>) -> anyhow::Result<()> {
+async fn handle_single_frame_datagramlike(
+    data: Vec<u8>,
+    tx: mpsc::Sender<FrameData>,
+) -> anyhow::Result<()> {
     // Parse frame header (big-endian)
     let mut bytes = Bytes::from(data);
     let _version = bytes.get_u8();
@@ -401,11 +451,7 @@ async fn handle_single_frame_datagramlike(data: Vec<u8>, tx: mpsc::Sender<FrameD
 
     debug!(
         "Received frame (uni): seq={}, type={:?}, {}x{}, {} bytes",
-        sequence,
-        frame_type,
-        width,
-        height,
-        payload_size
+        sequence, frame_type, width, height, payload_size
     );
 
     tx.send(FrameData {
@@ -476,7 +522,10 @@ async fn handle_frame_byte_stream(
         let height2 = frame_bytes.get_u16();
         let payload_size2 = frame_bytes.get_u32() as usize;
 
-        if payload_size2 != payload_size || frame_type_raw2 != frame_type_raw || sequence2 != sequence {
+        if payload_size2 != payload_size
+            || frame_type_raw2 != frame_type_raw
+            || sequence2 != sequence
+        {
             debug!("Frame header changed between peek/consume; continuing with consumed header");
         }
 
@@ -501,11 +550,7 @@ async fn handle_frame_byte_stream(
 
         debug!(
             "Received frame (bi): seq={}, type={:?}, {}x{}, {} bytes",
-            sequence2,
-            frame_type,
-            width2,
-            height2,
-            payload_size2
+            sequence2, frame_type, width2, height2, payload_size2
         );
 
         if tx

@@ -49,8 +49,8 @@ struct ThunderMirror: AsyncParsableCommand {
     @Flag(name: .long, help: "Send raw RGBA frames instead of H.264 encoded")
     var raw = false
     
-    @Option(name: .long, help: "Target bitrate in Mbps (default: 10)")
-    var bitrate: Int = 10
+    @Option(name: .long, help: "Target bitrate in Mbps (default: 25)")
+    var bitrate: Int = 25
 
     @Option(name: .long, help: "Duration in seconds (0 = indefinite)")
     var duration: Int = 0

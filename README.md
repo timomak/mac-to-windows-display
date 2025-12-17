@@ -65,6 +65,8 @@ Both should show the Thunderbolt network interface with an IP address.
 ./scripts/run_mac.sh
 ```
 
+Tip: for noticeably better quality on high-DPI displays, increase bitrate (Thunderbolt has plenty of headroom), e.g. `--bitrate 50`.
+
 ## Project Status
 
 See [docs/PHASE.md](docs/PHASE.md) for current development status.
