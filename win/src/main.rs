@@ -745,8 +745,8 @@ fn create_server_config() -> anyhow::Result<ServerConfig> {
     transport.datagram_receive_buffer_size(Some(16 * 1024 * 1024));
     
     // Increase stream receive window for high-bandwidth streaming
-    transport.receive_window((16 * 1024 * 1024).try_into().unwrap());
-    transport.stream_receive_window((8 * 1024 * 1024).try_into().unwrap());
+    transport.receive_window((16u32 * 1024 * 1024).try_into().unwrap());
+    transport.stream_receive_window((8u32 * 1024 * 1024).try_into().unwrap());
     
     // Keep connection alive
     transport.keep_alive_interval(Some(Duration::from_secs(5)));

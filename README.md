@@ -164,7 +164,11 @@ cd win && cargo build
 This project includes Cursor commands for automated development:
 
 1. Open in Cursor IDE
-2. Run `.cursor/commands/next-step.md` to implement the next phase item
+2. Use `Cmd/Ctrl+Shift+P` → "Cursor: Run Command" to access:
+   - `build-mac` — Build ThunderMirror.app for macOS
+   - `build-win` — Build ThunderReceiver.exe for Windows
+   - `next-step` — Implement the next phase item
+   - `ci-fix` — Check and fix CI errors
 3. Changes are automatically tested and pushed on success
 
 ## Contributing
