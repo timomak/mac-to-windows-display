@@ -1,6 +1,8 @@
 //! ThunderMirror Windows Receiver
 //!
 //! Receives screen stream from Mac and displays it.
+//! 
+//! Automatically advertises via mDNS/Bonjour for zero-config discovery.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -9,6 +11,7 @@ use std::time::{Duration, Instant};
 use bytes::{Buf, Bytes};
 use clap::Parser;
 use minifb::{Key, Window, WindowOptions};
+use thunder_receiver::discovery::ServiceAdvertiser;
 
 #[cfg(windows)]
 use windows::Win32::Foundation::HWND;
@@ -252,6 +255,21 @@ fn main() -> anyhow::Result<()> {
 
     // Create tokio runtime
     let rt = tokio::runtime::Runtime::new()?;
+
+    // Start mDNS service advertisement for auto-discovery
+    // This allows Mac to find us without knowing our IP
+    let port = args.port;
+    rt.spawn(async move {
+        let mut advertiser = ServiceAdvertiser::new();
+        if let Err(e) = advertiser.start(port).await {
+            warn!("Failed to start mDNS advertisement: {}", e);
+            warn!("Mac will need to manually enter this machine's IP address");
+        }
+        // Keep advertiser alive for the duration of the program
+        loop {
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+        }
+    });
 
     // Run QUIC server in background and receive frames
     // Larger buffer to handle frame bursts and prevent backpressure

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Logging
+import Combine
 
 /// Observable state for the streaming session
 @MainActor
@@ -62,8 +63,16 @@ class StreamingState: ObservableObject {
     // MARK: - Published Properties
     
     @Published var connectionState: ConnectionState = .disconnected
-    @Published var targetIP: String = "192.168.50.2"
+    @Published var targetIP: String = ""  // Empty by default - will auto-discover
     @Published var port: UInt16 = 9999
+    
+    /// Peer discovery for automatic receiver detection
+    @Published var peerDiscovery = PeerDiscovery()
+    
+    /// Currently selected peer (for UI binding)
+    @Published var selectedPeer: DiscoveredPeer?
+    
+    private var discoverySubscription: AnyCancellable?
     @Published var mode: StreamMode = .mirror
     @Published var bitrateMbps: Int = 50  // Higher default for better quality
     @Published var maxWidth: Int = 1920   // Cap resolution for smooth playback
@@ -94,6 +103,50 @@ class StreamingState: ObservableObject {
     private var consecutiveSendErrors: Int = 0
     private static let maxConsecutiveErrors: Int = 30  // Allow ~0.5 second of errors at 60fps
     
+    // MARK: - Initialization
+    
+    init() {
+        // Start peer discovery automatically
+        startDiscovery()
+        
+        // Subscribe to discovered peers - auto-select first one found
+        discoverySubscription = peerDiscovery.$peers
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] peers in
+                guard let self = self else { return }
+                
+                // Auto-select first peer if no IP is set
+                if self.targetIP.isEmpty, let firstPeer = peers.first {
+                    self.selectPeer(firstPeer)
+                }
+                
+                // If selected peer is gone, clear selection
+                if let selected = self.selectedPeer,
+                   !peers.contains(where: { $0.id == selected.id }) {
+                    self.selectedPeer = nil
+                    // Don't clear targetIP - user might have typed it manually
+                }
+            }
+    }
+    
+    /// Start discovering receivers on the network
+    func startDiscovery() {
+        peerDiscovery.startBrowsing()
+    }
+    
+    /// Stop discovering receivers
+    func stopDiscovery() {
+        peerDiscovery.stopBrowsing()
+    }
+    
+    /// Select a discovered peer
+    func selectPeer(_ peer: DiscoveredPeer) {
+        selectedPeer = peer
+        targetIP = peer.host
+        port = peer.port
+        logger.info("Selected peer: \(peer.name) at \(peer.host):\(peer.port)")
+    }
+    
     // MARK: - Actions
     
     var isStreaming: Bool {
@@ -102,6 +155,9 @@ class StreamingState: ObservableObject {
     }
     
     var canStart: Bool {
+        // Need valid IP address to connect
+        guard !targetIP.isEmpty else { return false }
+        
         if case .disconnected = connectionState { return true }
         if case .error = connectionState { return true }
         return false

@@ -122,20 +122,64 @@ struct ContentView: View {
     
     private var connectionCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("Connection", systemImage: "network")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white.opacity(0.5))
+            HStack {
+                Label("Connection", systemImage: "network")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.5))
+                
+                Spacer()
+                
+                // Discovery status indicator
+                if state.peerDiscovery.isSearching {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: 12, height: 12)
+                        Text("Searching...")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                } else if !state.peerDiscovery.peers.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.green)
+                        Text("\(state.peerDiscovery.peers.count) found")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                }
+            }
             
             VStack(spacing: 12) {
-                // IP Address
+                // Discovered Receivers
+                if !state.peerDiscovery.peers.isEmpty {
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("Receivers")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white.opacity(0.7))
+                            Spacer()
+                        }
+                        
+                        ForEach(state.peerDiscovery.peers) { peer in
+                            peerRow(peer)
+                        }
+                    }
+                    
+                    Divider()
+                        .background(Color.white.opacity(0.1))
+                }
+                
+                // Manual IP Address (always available)
                 HStack {
-                    Text("Windows IP")
+                    Text(state.peerDiscovery.peers.isEmpty ? "Windows IP" : "Or enter IP")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white.opacity(0.7))
                     
                     Spacer()
                     
-                    TextField("192.168.50.2", text: $state.targetIP)
+                    TextField("Auto-detecting...", text: $state.targetIP)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundColor(.white)
@@ -167,6 +211,61 @@ struct ContentView: View {
         }
         .padding(16)
         .background(cardBackground)
+    }
+    
+    private func peerRow(_ peer: DiscoveredPeer) -> some View {
+        Button(action: {
+            state.selectPeer(peer)
+        }) {
+            HStack(spacing: 10) {
+                // Selection indicator
+                Image(systemName: state.selectedPeer?.id == peer.id ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14))
+                    .foregroundColor(state.selectedPeer?.id == peer.id ? .green : .white.opacity(0.3))
+                
+                // Device icon
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.6))
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(peer.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                    
+                    Text("\(peer.host):\(peer.port)")
+                        .font(.system(size: 10, weight: .regular, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                
+                Spacer()
+                
+                // Link-local indicator
+                if peer.host.hasPrefix("169.254.") {
+                    Text("Thunderbolt")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.cyan)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color.cyan.opacity(0.15))
+                        )
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(state.selectedPeer?.id == peer.id ? Color.white.opacity(0.08) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(state.selectedPeer?.id == peer.id ? Color.green.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(state.isStreaming)
     }
     
     private var settingsCard: some View {
