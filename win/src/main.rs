@@ -27,38 +27,28 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
 
-/// Fast YUV to RGB conversion using integer math (BT.709 LIMITED range)
-/// VideoToolbox outputs limited range: Y=[16,235], UV=[16,240]
-/// This function expands to full RGB [0,255]
+/// Fast YUV to RGB conversion using integer math (BT.709 FULL range)
+/// OpenH264 decoder outputs full range YUV: Y=[0,255], UV=[0,255] centered at 128
+///
+/// BT.709 matrix (full range):
+/// R = Y + 1.5748 * (V - 128)
+/// G = Y - 0.1873 * (U - 128) - 0.4681 * (V - 128)
+/// B = Y + 1.8556 * (U - 128)
+///
+/// Using fixed-point (shift by 10 = divide by 1024):
+/// R coeff for V: 1.5748 * 1024 ≈ 1613
+/// G coeff for U: 0.1873 * 1024 ≈ 192
+/// G coeff for V: 0.4681 * 1024 ≈ 479
+/// B coeff for U: 1.8556 * 1024 ≈ 1900
 #[inline(always)]
-fn yuv_to_rgb_bt709_limited(y: u8, u: u8, v: u8) -> (u8, u8, u8) {
-    // BT.709 limited range to full range RGB conversion
-    // First expand Y from [16,235] to [0,255]: Y' = (Y - 16) * 255 / 219
-    // Expand UV from [16,240] centered at 128 to [-128,127]: UV' = (UV - 128) * 255 / 224
-    //
-    // Then apply BT.709 matrix:
-    // R = Y' + 1.5748 * V'
-    // G = Y' - 0.1873 * U' - 0.4681 * V'  
-    // B = Y' + 1.8556 * U'
-    //
-    // Combined with fixed-point (shift by 10 = divide by 1024):
-    // Y scale: 255/219 * 1024 ≈ 1192
-    // UV scale: 255/224 ≈ 1.138, so coefficients become:
-    // R coeff for V: 1.5748 * 1.138 * 1024 ≈ 1836
-    // G coeff for U: 0.1873 * 1.138 * 1024 ≈ 218
-    // G coeff for V: 0.4681 * 1.138 * 1024 ≈ 545
-    // B coeff for U: 1.8556 * 1.138 * 1024 ≈ 2160
-    
-    let y_i = y as i32 - 16;
+fn yuv_to_rgb_bt709_full(y: u8, u: u8, v: u8) -> (u8, u8, u8) {
+    let y_i = y as i32;
     let u_i = u as i32 - 128;
     let v_i = v as i32 - 128;
 
-    // Scale Y from limited to full range, apply matrix
-    let y_scaled = (y_i * 1192) >> 10;  // Expands Y from [16,235] to [0,255]
-    
-    let r = y_scaled + ((1836 * v_i) >> 10);
-    let g = y_scaled - ((218 * u_i + 545 * v_i) >> 10);
-    let b = y_scaled + ((2160 * u_i) >> 10);
+    let r = y_i + ((1613 * v_i) >> 10);
+    let g = y_i - ((192 * u_i + 479 * v_i) >> 10);
+    let b = y_i + ((1900 * u_i) >> 10);
 
     (
         r.clamp(0, 255) as u8,
@@ -359,6 +349,16 @@ fn main() -> anyhow::Result<()> {
                             // Get dimensions from decoded frame
                             let (dec_width, dec_height) = decoded.dimensions();
 
+                            // Log first frame's Y values to diagnose color range issues
+                            if h264_frames == 0 {
+                                let y_plane = decoded.y();
+                                let y_min = y_plane.iter().copied().min().unwrap_or(0);
+                                let y_max = y_plane.iter().copied().max().unwrap_or(0);
+                                let y_avg: u32 = y_plane.iter().map(|&y| y as u32).sum::<u32>() / y_plane.len().max(1) as u32;
+                                info!("First decoded frame: {}x{}, Y range [{}, {}], avg {}", 
+                                      dec_width, dec_height, y_min, y_max, y_avg);
+                            }
+
                             // If decoder output dims differ from header, trust decoder.
                             resize_window_and_buffers(
                                 &mut window,
@@ -391,7 +391,7 @@ fn main() -> anyhow::Result<()> {
                                     let u = u_plane[u_idx];
                                     let v = v_plane[v_idx];
 
-                                    let (r, g, b) = yuv_to_rgb_bt709_limited(y, u, v);
+                                    let (r, g, b) = yuv_to_rgb_bt709_full(y, u, v);
                                     
                                     let pixel_idx = row * dec_width + col;
                                     if pixel_idx < buffer.len() {
